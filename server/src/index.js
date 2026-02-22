@@ -313,18 +313,29 @@ app.get("/", (_req, res) => {
   });
 });
 
-app.post("/identify", upload.single("image"), async (req, res) => {
+app.post(
+  "/identify",
+  upload.fields([
+    { name: "image", maxCount: 1 },
+    { name: "IMAGE", maxCount: 1 }
+  ]),
+  async (req, res) => {
   try {
-    if (!req.file?.buffer) {
-      res.status(400).json({ error: "image file is required in multipart field 'image'" });
+    const files = req.files || {};
+    const imageFile = files?.image?.[0] || files?.IMAGE?.[0] || null;
+
+    if (!imageFile?.buffer) {
+      res
+        .status(400)
+        .json({ error: "image file is required in multipart field 'image' (or 'IMAGE')." });
       return;
     }
 
     const language = (req.body?.language || "en").toLowerCase();
     const safeLang = ["it", "en", "es"].includes(language) ? language : "en";
 
-    const classification = await classifyPlantNet(req.file.buffer, req.file.mimetype || "image/jpeg");
-    classification.disease = await classifyDiseaseHF(req.file.buffer, req.file.mimetype || "image/jpeg");
+    const classification = await classifyPlantNet(imageFile.buffer, imageFile.mimetype || "image/jpeg");
+    classification.disease = await classifyDiseaseHF(imageFile.buffer, imageFile.mimetype || "image/jpeg");
 
     const knowledge = await fetchKnowledge(classification.topSpecies, safeLang);
     const narrative = await generateNarrative(knowledge, safeLang);
@@ -338,7 +349,8 @@ app.post("/identify", upload.single("image"), async (req, res) => {
     const message = error instanceof Error ? error.message : "Unknown server error";
     res.status(500).json({ error: message });
   }
-});
+  }
+);
 
 app.listen(PORT, () => {
   console.log(`plant-discovery-server listening on http://localhost:${PORT}`);

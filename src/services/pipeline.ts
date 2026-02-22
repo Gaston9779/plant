@@ -1,4 +1,5 @@
 import { LanguageCode, PlantResult } from "../types";
+import { Platform } from "react-native";
 
 type BackendIdentifyResponse = {
   classification: PlantResult["classification"];
@@ -21,14 +22,21 @@ export const runPlantPipeline = async (
   }
 
   const formData = new FormData();
-  formData.append(
-    "image",
-    {
-      uri: imageUri,
-      name: "plant-upload.jpg",
-      type: "image/jpeg"
-    } as any
-  );
+
+  if (Platform.OS === "web") {
+    const imageResponse = await fetch(imageUri);
+    const imageBlob = await imageResponse.blob();
+    formData.append("image", imageBlob, "plant-upload.jpg");
+  } else {
+    formData.append(
+      "image",
+      {
+        uri: imageUri,
+        name: "plant-upload.jpg",
+        type: "image/jpeg"
+      } as any
+    );
+  }
   formData.append("language", language);
 
   const normalizedBackendUrl = backendUrl.endsWith("/")
