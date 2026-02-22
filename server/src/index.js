@@ -300,6 +300,14 @@ app.get("/health", (_req, res) => {
   });
 });
 
+app.get("/", (_req, res) => {
+  res.json({
+    ok: true,
+    service: "plant-discovery-server",
+    endpoints: ["/health", "/identify"]
+  });
+});
+
 app.post("/identify", upload.single("image"), async (req, res) => {
   try {
     if (!req.file?.buffer) {
