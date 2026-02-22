@@ -25,6 +25,8 @@ import { HistoryEntry, LanguageCode, PlantResult } from "./src/types";
 import { theme } from "./src/theme";
 
 const BUILD_MARKER = "build-2026-02-22-wiki-image-lottie-loader";
+const HABITAT_BASEMAP_URL =
+  "https://upload.wikimedia.org/wikipedia/commons/thumb/8/80/World_map_-_low_resolution.svg/1024px-World_map_-_low_resolution.svg.png";
 
 const copy: Record<
   LanguageCode,
@@ -174,7 +176,6 @@ const sharePlantCard = async (result: PlantResult, language: LanguageCode): Prom
     `${result.knowledge.commonName} (${result.knowledge.scientificName})`,
     `${t.confidence}: ${getConfidenceLabel(result.classification.confidence)}`,
     `${t.description}: ${result.narrative.description}`,
-    `${t.care}: ${result.narrative.care}`,
     `${t.funFacts}: ${result.narrative.funFacts}`
   ].join("\n\n");
 
@@ -499,10 +500,13 @@ export default function App() {
                 }}
               >
                 <Text style={styles.sectionTitle}>{`🗺️ ${t.habitat}`}</Text>
-                <Image
-                  source={{ uri: currentResult.knowledge.habitatMapPreviewUrl }}
-                  style={styles.mapPreviewImage}
-                />
+                <View style={styles.mapLayerWrap}>
+                  <Image source={{ uri: HABITAT_BASEMAP_URL }} style={styles.mapPreviewImage} />
+                  <Image
+                    source={{ uri: currentResult.knowledge.habitatMapPreviewUrl }}
+                    style={styles.mapOverlayImage}
+                  />
+                </View>
               </Pressable>
             ) : (
               <SectionCard
@@ -517,12 +521,6 @@ export default function App() {
               title={t.toxicity}
               body={currentResult.narrative.toxicity}
               onPress={sectionLinks?.toxicity ? () => void openSourceLink(sectionLinks.toxicity!) : null}
-            />
-            <SectionCard
-              icon="🪴"
-              title={t.care}
-              body={currentResult.narrative.care}
-              onPress={sectionLinks?.care ? () => void openSourceLink(sectionLinks.care!) : null}
             />
             <SectionCard
               icon="✨"
@@ -864,6 +862,23 @@ const styles = StyleSheet.create({
     height: 120,
     borderRadius: theme.radius.sm,
     backgroundColor: "#152022",
+    resizeMode: "contain"
+  },
+  mapLayerWrap: {
+    width: "100%",
+    height: 120,
+    borderRadius: theme.radius.sm,
+    overflow: "hidden",
+    backgroundColor: "#152022"
+  },
+  mapOverlayImage: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: "100%",
+    height: "100%",
     resizeMode: "contain"
   },
   historySectionWrap: {
