@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "Plant Discovery",
+    "slug": "plant-discovery",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Use camera to identify plants.",
+        "NSPhotoLibraryUsageDescription": "Upload plant photos for identification."
+      }
+    },
+    "android": {
+      "permissions": [
+        "CAMERA",
+        "READ_MEDIA_IMAGES"
+      ]
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}
