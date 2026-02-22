@@ -292,6 +292,14 @@ const isLikelyScientificName = (value, scientificName) => {
   return /^[a-z]+ [a-z]+(?: [a-z]+)?$/.test(normalized);
 };
 
+const cleanWikiTitle = (value) =>
+  String(value || "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const isLikelyFamilyOnly = (value) => /aceae$/i.test(String(value || "").trim());
+
 const fetchGbifCommonName = async (usageKey, language) => {
   if (!usageKey) return null;
   const payload = await fetchJsonOrNull(
@@ -312,6 +320,26 @@ const fetchGbifCommonName = async (usageKey, language) => {
 
   const first = results.find((item) => typeof item?.vernacularName === "string");
   return first?.vernacularName ? String(first.vernacularName) : null;
+};
+
+const fetchLocalizedCommonName = async (scientificName, language) => {
+  const safeLang = ["it", "en", "es"].includes(language) ? language : "en";
+  const wikiCandidate =
+    (await fetchWikiSummary(scientificName, safeLang)) ||
+    (await fetchWikiSummary(scientificName, "en"));
+  const wikiLabel = cleanWikiTitle(wikiCandidate?.displaytitle || wikiCandidate?.title || "");
+  if (wikiLabel && !isLikelyScientificName(wikiLabel, scientificName) && !isLikelyFamilyOnly(wikiLabel)) {
+    return wikiLabel;
+  }
+
+  const gbif = await fetchJsonOrNull(
+    `https://api.gbif.org/v1/species/match?name=${encodeURIComponent(scientificName)}`
+  );
+  const gbifName = await fetchGbifCommonName(gbif?.usageKey, safeLang);
+  if (gbifName && !isLikelyScientificName(gbifName, scientificName) && !isLikelyFamilyOnly(gbifName)) {
+    return gbifName;
+  }
+  return null;
 };
 
 const fetchGbifHabitatEvidence = async (usageKey, scientificName, language) => {
@@ -370,9 +398,14 @@ const fetchGbifHabitatEvidence = async (usageKey, scientificName, language) => {
 
 const fetchEolEvidence = async (scientificName, language) => {
   const safeLanguage = ["it", "en", "es"].includes(language) ? language : "en";
-  const searchData = await fetchJsonOrNull(
-    `https://eol.org/api/search/1.0.json?q=${encodeURIComponent(scientificName)}&page=1&exact=true`
-  );
+  const scientificBase = scientificName.split(" ").slice(0, 2).join(" ");
+  const searchData =
+    (await fetchJsonOrNull(
+      `https://eol.org/api/search/1.0.json?q=${encodeURIComponent(scientificName)}&page=1&exact=true`
+    )) ||
+    (await fetchJsonOrNull(
+      `https://eol.org/api/search/1.0.json?q=${encodeURIComponent(scientificBase)}&page=1&exact=false`
+    ));
   if (!searchData) return null;
   const firstResult = searchData?.results?.[0];
   if (!firstResult?.id) return null;
@@ -424,7 +457,8 @@ const fetchEolEvidence = async (scientificName, language) => {
   return {
     historyText,
     funFactsText,
-    sourceUrl: pageUrl
+    sourceUrl: pageUrl,
+    searchUrl: `https://eol.org/search?q=${encodeURIComponent(scientificBase)}`
   };
 };
 
@@ -458,15 +492,16 @@ const fetchKnowledge = async (species, language) => {
   }
 
   const scientificName = gbif?.canonicalName || species;
-  const wikiTitle = wiki?.title || null;
+  const wikiTitle = cleanWikiTitle(wiki?.displaytitle || wiki?.title || "");
   const gbifCommonName = await fetchGbifCommonName(gbif?.usageKey, language);
   const gbifHabitat = await fetchGbifHabitatEvidence(gbif?.usageKey, scientificName, language);
   const eolEvidence = await fetchEolEvidence(scientificName, language);
   const wikiLooksScientific = wikiTitle && isLikelyScientificName(wikiTitle, scientificName);
   const gbifLooksScientific = gbifCommonName && isLikelyScientificName(gbifCommonName, scientificName);
+  const gbifLooksFamily = gbifCommonName && isLikelyFamilyOnly(gbifCommonName);
   const commonName =
     (!wikiLooksScientific && wikiTitle ? wikiTitle : null) ||
-    (!gbifLooksScientific ? gbifCommonName : null) ||
+    (!gbifLooksScientific && !gbifLooksFamily ? gbifCommonName : null) ||
     (gbif?.family && gbif.family !== "Unknown" ? gbif.family : scientificName);
 
   const externalEvidence = {
@@ -484,9 +519,9 @@ const fetchKnowledge = async (species, language) => {
     imageUrl: wiki?.originalimage?.source || wiki?.thumbnail?.source || null,
     habitatMapPreviewUrl: gbifHabitat?.mapPreviewUrl || null,
     sectionLinks: buildSectionLinks(wiki?.content_urls?.desktop?.page || null, scientificName, language, {
-      history: eolEvidence?.sourceUrl || null,
+      history: eolEvidence?.sourceUrl || eolEvidence?.searchUrl || `https://eol.org/search?q=${encodeURIComponent(scientificName)}`,
       habitat: gbifHabitat?.sourceUrl || null,
-      funFacts: eolEvidence?.sourceUrl || null
+      funFacts: eolEvidence?.sourceUrl || eolEvidence?.searchUrl || `https://eol.org/search?q=${encodeURIComponent(scientificName)}`
     }),
     externalEvidence,
     publication: gbifDetails?.publishedIn || gbif?.scientificNameAuthorship || "Unknown",
@@ -661,6 +696,17 @@ app.post(
 
     stage = "classify-species";
     const classification = await classifyPlantNet(imageFile.buffer, imageFile.mimetype || "image/jpeg");
+    stage = "localize-alternatives";
+    classification.alternatives = await Promise.all(
+      (classification.alternatives || []).map(async (item) => {
+        const common = await fetchLocalizedCommonName(item.species, safeLang);
+        if (!common) return item;
+        return {
+          ...item,
+          species: `${common} (${item.species})`
+        };
+      })
+    );
     stage = "classify-disease";
     classification.disease = await classifyDiseaseHF(imageFile.buffer, imageFile.mimetype || "image/jpeg");
 

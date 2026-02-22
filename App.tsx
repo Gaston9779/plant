@@ -491,25 +491,26 @@ export default function App() {
               body={currentResult.narrative.history}
               onPress={sectionLinks?.history ? () => void openSourceLink(sectionLinks.history!) : null}
             />
-            <SectionCard
-              icon="🗺️"
-              title={t.habitat}
-              body={currentResult.narrative.habitat}
-              onPress={sectionLinks?.habitat ? () => void openSourceLink(sectionLinks.habitat!) : null}
-            />
-            {currentResult.knowledge.habitatMapPreviewUrl && sectionLinks?.habitat && (
+            {currentResult.knowledge.habitatMapPreviewUrl && sectionLinks?.habitat ? (
               <Pressable
-                style={styles.mapPreviewCard}
+                style={styles.sectionCard}
                 onPress={() => {
                   void openSourceLink(sectionLinks.habitat!);
                 }}
               >
-                <Text style={styles.mapPreviewTitle}>GBIF Map Preview</Text>
+                <Text style={styles.sectionTitle}>{`🗺️ ${t.habitat}`}</Text>
                 <Image
                   source={{ uri: currentResult.knowledge.habitatMapPreviewUrl }}
                   style={styles.mapPreviewImage}
                 />
               </Pressable>
+            ) : (
+              <SectionCard
+                icon="🗺️"
+                title={t.habitat}
+                body={currentResult.narrative.habitat}
+                onPress={sectionLinks?.habitat ? () => void openSourceLink(sectionLinks.habitat!) : null}
+              />
             )}
             <SectionCard
               icon="⚠️"
@@ -858,23 +859,12 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     fontSize: 14
   },
-  mapPreviewCard: {
-    backgroundColor: theme.colors.card,
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
-    borderColor: theme.colors.cardBorder,
-    padding: 10,
-    gap: 8
-  },
-  mapPreviewTitle: {
-    color: theme.colors.heading,
-    fontWeight: "700",
-    fontSize: 13
-  },
   mapPreviewImage: {
     width: "100%",
     height: 120,
-    borderRadius: theme.radius.sm
+    borderRadius: theme.radius.sm,
+    backgroundColor: "#152022",
+    resizeMode: "contain"
   },
   historySectionWrap: {
     marginTop: 2,
