@@ -194,6 +194,11 @@ const fetchKnowledge = async (species, language) => {
     `https://api.gbif.org/v1/species/match?name=${encodeURIComponent(species)}`
   );
   const gbif = gbifResponse.ok ? await gbifResponse.json() : null;
+  let gbifDetails = null;
+  if (gbif?.usageKey) {
+    const detailsResponse = await fetch(`https://api.gbif.org/v1/species/${gbif.usageKey}`);
+    gbifDetails = detailsResponse.ok ? await detailsResponse.json() : null;
+  }
 
   if (!wiki && !gbif) {
     throw new Error("Knowledge retrieval failed from Wikipedia and GBIF.");
@@ -207,6 +212,7 @@ const fetchKnowledge = async (species, language) => {
     scientificName,
     family: gbif?.family || "Unknown",
     genus: gbif?.genus || "Unknown",
+    publication: gbifDetails?.publishedIn || gbif?.scientificNameAuthorship || "Unknown",
     sourceSummary:
       wiki?.extract ||
       `No encyclopedia summary available for ${scientificName}. GBIF metadata was used where available.`,
@@ -216,9 +222,13 @@ const fetchKnowledge = async (species, language) => {
 
 const fallbackNarrative = (knowledge, language) => {
   if (language === "it") {
+    const publication =
+      knowledge.publication && knowledge.publication !== "Unknown"
+        ? ` La denominazione botanica e collegata a: ${knowledge.publication}.`
+        : "";
     return {
-      description: `${knowledge.commonName} (${knowledge.scientificName}) appartiene alla famiglia ${knowledge.family}. ${knowledge.sourceSummary}`,
-      history: `Questo profilo si basa su fonti pubbliche e riferimenti tassonomici aggiornati per ${knowledge.scientificName}.`,
+      description: `${knowledge.commonName} (${knowledge.scientificName}) appartiene alla famiglia ${knowledge.family} e al genere ${knowledge.genus}.`,
+      history: `${knowledge.scientificName} e una specie riconosciuta nella classificazione botanica moderna.${publication}`,
       habitat: `Il genere ${knowledge.genus} comprende habitat diversi in base alla specie e al clima.`,
       toxicity: "La tossicita varia per specie e dose; verifica sempre con fonti botaniche o veterinarie affidabili.",
       care: "Fornisci luce adeguata, irrigazione moderata e drenaggio corretto. Adatta la cura alla specie identificata.",
@@ -227,9 +237,13 @@ const fallbackNarrative = (knowledge, language) => {
   }
 
   if (language === "es") {
+    const publication =
+      knowledge.publication && knowledge.publication !== "Unknown"
+        ? ` La denominacion botanica se asocia con: ${knowledge.publication}.`
+        : "";
     return {
-      description: `${knowledge.commonName} (${knowledge.scientificName}) pertenece a la familia ${knowledge.family}. ${knowledge.sourceSummary}`,
-      history: `Este perfil se basa en fuentes publicas y referencias taxonomicas actuales para ${knowledge.scientificName}.`,
+      description: `${knowledge.commonName} (${knowledge.scientificName}) pertenece a la familia ${knowledge.family} y al genero ${knowledge.genus}.`,
+      history: `${knowledge.scientificName} es una especie reconocida dentro de la clasificacion botanica moderna.${publication}`,
       habitat: `El genero ${knowledge.genus} abarca habitats distintos segun la especie y el clima.`,
       toxicity: "La toxicidad varia por especie y dosis; confirma con fuentes botanicas o veterinarias fiables.",
       care: "Proporciona luz adecuada, riego moderado y buen drenaje. Ajusta el cuidado a la especie identificada.",
@@ -238,8 +252,12 @@ const fallbackNarrative = (knowledge, language) => {
   }
 
   return {
-    description: `${knowledge.commonName} (${knowledge.scientificName}) belongs to the ${knowledge.family} family. ${knowledge.sourceSummary}`,
-    history: `This profile is based on public sources and current taxonomy references for ${knowledge.scientificName}.`,
+    description: `${knowledge.commonName} (${knowledge.scientificName}) belongs to the ${knowledge.family} family and genus ${knowledge.genus}.`,
+    history: `${knowledge.scientificName} is recognized in modern botanical taxonomy. ${
+      knowledge.publication && knowledge.publication !== "Unknown"
+        ? `Its naming context is linked to: ${knowledge.publication}.`
+        : ""
+    }`,
     habitat: `The genus ${knowledge.genus} spans different habitats by species and climate range.`,
     toxicity: "Toxicity varies by species and dose; confirm with trusted botanical or veterinary sources.",
     care: "Provide adequate light, moderate irrigation, and proper drainage. Adapt care to the exact species.",
@@ -248,10 +266,14 @@ const fallbackNarrative = (knowledge, language) => {
 };
 
 const parseNarrative = (content) => {
-  const start = content.indexOf("{");
-  const end = content.lastIndexOf("}");
+  const clean = content.replace(/```json|```/g, "").trim();
+  const direct = parseJsonSafe(clean, null);
+  if (direct) return direct;
+
+  const start = clean.indexOf("{");
+  const end = clean.lastIndexOf("}");
   if (start < 0 || end < 0) return null;
-  return parseJsonSafe(content.slice(start, end + 1), null);
+  return parseJsonSafe(clean.slice(start, end + 1), null);
 };
 
 const generateNarrative = async (knowledge, language) => {
@@ -262,7 +284,9 @@ const generateNarrative = async (knowledge, language) => {
     `Write strictly in ${LANGUAGE_NAME[safeLanguage]}.`,
     "Return JSON only with keys: description, history, habitat, toxicity, care, funFacts.",
     "Keep each field concise and factual (1-2 sentences).",
-    "All output fields must be in the requested language.",
+    "All output fields must be in the requested language only.",
+    "If any source sentence is in another language, translate it fully.",
+    "Do not include markdown or code fences.",
     `Keep scientific name unchanged: \"${knowledge.scientificName}\".`,
     `Keep common name unchanged: \"${knowledge.commonName}\".`,
     `Source data: ${JSON.stringify(knowledge)}`

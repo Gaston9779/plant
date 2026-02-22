@@ -208,6 +208,7 @@ export default function App() {
   const [currentResult, setCurrentResult] = useState<PlantResult | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historyFilter, setHistoryFilter] = useState("");
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
 
   const t = copy[language];
   const hfToken = process.env.EXPO_PUBLIC_HUGGINGFACE_TOKEN;
@@ -387,16 +388,26 @@ export default function App() {
         {errorTechnical && <Text style={styles.errorDetailText}>{errorTechnical}</Text>}
 
         <View style={styles.diagnosticsCard}>
-          <Text style={styles.diagnosticsTitle}>Diagnostica</Text>
-          <Text style={styles.diagnosticsLine}>{`Build: ${BUILD_MARKER}`}</Text>
-          <Text style={styles.diagnosticsLine}>{`Backend URL: ${backendUrl || "mancante"}`}</Text>
-          <Text style={styles.diagnosticsLine}>{`Rete: ${isOnline ? "online" : "offline"}`}</Text>
-          <Text style={styles.diagnosticsLine}>{`HF token: ${hfToken ? `presente (${hfToken.length} chars)` : "mancante"}`}</Text>
-          <Text style={styles.diagnosticsLine}>{`HF species model: ${hfSpeciesModel || "mancante"}`}</Text>
-          <Text style={styles.diagnosticsLine}>{`HF disease model: ${hfDiseaseModel || "mancante (opzionale)"}`}</Text>
-          <Text style={styles.diagnosticsLine}>{`HF history model: ${hfHistoryModel || "mancante (opzionale, ma consigliato)"}`}</Text>
-          <Text style={styles.diagnosticsLine}>{`HF narrative model: ${hfNarrativeModel || "mancante (opzionale)"}`}</Text>
-          <Text style={styles.diagnosticsLine}>{`PlantNet key: ${plantNetKey ? "presente" : "mancante (opzionale se usi HF bio)"}`}</Text>
+          <Pressable
+            style={styles.diagnosticsHeader}
+            onPress={() => setDiagnosticsOpen((current) => !current)}
+          >
+            <Text style={styles.diagnosticsTitle}>Diagnostica</Text>
+            <Text style={styles.diagnosticsChevron}>{diagnosticsOpen ? "▾" : "▸"}</Text>
+          </Pressable>
+          {diagnosticsOpen && (
+            <View style={styles.diagnosticsBody}>
+              <Text style={styles.diagnosticsLine}>{`Build: ${BUILD_MARKER}`}</Text>
+              <Text style={styles.diagnosticsLine}>{`Backend URL: ${backendUrl || "mancante"}`}</Text>
+              <Text style={styles.diagnosticsLine}>{`Rete: ${isOnline ? "online" : "offline"}`}</Text>
+              <Text style={styles.diagnosticsLine}>{`HF token: ${hfToken ? `presente (${hfToken.length} chars)` : "mancante"}`}</Text>
+              <Text style={styles.diagnosticsLine}>{`HF species model: ${hfSpeciesModel || "mancante"}`}</Text>
+              <Text style={styles.diagnosticsLine}>{`HF disease model: ${hfDiseaseModel || "mancante (opzionale)"}`}</Text>
+              <Text style={styles.diagnosticsLine}>{`HF history model: ${hfHistoryModel || "mancante (opzionale, ma consigliato)"}`}</Text>
+              <Text style={styles.diagnosticsLine}>{`HF narrative model: ${hfNarrativeModel || "mancante (opzionale)"}`}</Text>
+              <Text style={styles.diagnosticsLine}>{`PlantNet key: ${plantNetKey ? "presente" : "mancante (opzionale se usi HF bio)"}`}</Text>
+            </View>
+          )}
         </View>
 
         {currentResult && (
@@ -471,6 +482,7 @@ export default function App() {
             filteredHistory.map((item) => (
               <View key={item.id} style={styles.historyCard}>
                 <Pressable
+                  style={styles.historyMainArea}
                   onPress={() => {
                     setCurrentResult(item.result);
                     setImageUri(item.result.imageUri);
@@ -488,7 +500,7 @@ export default function App() {
                     void handleDeleteHistory(item.id);
                   }}
                 >
-                  <Text style={styles.deleteHistoryText}>{t.deleteRecord}</Text>
+                  <Text style={styles.deleteHistoryText}>→</Text>
                 </Pressable>
               </View>
             ))
@@ -640,12 +652,25 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.md,
     borderWidth: 1,
     borderColor: theme.colors.cardBorder,
-    padding: 10,
-    gap: 3
+    padding: 10
+  },
+  diagnosticsHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between"
   },
   diagnosticsTitle: {
     color: theme.colors.heading,
     fontWeight: "700"
+  },
+  diagnosticsChevron: {
+    color: theme.colors.textMuted,
+    fontSize: 16,
+    fontWeight: "700"
+  },
+  diagnosticsBody: {
+    marginTop: 6,
+    gap: 3
   },
   diagnosticsLine: {
     color: theme.colors.textMuted,
@@ -766,7 +791,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.cardBorder,
     padding: 10,
-    gap: 8
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10
+  },
+  historyMainArea: {
+    flex: 1,
+    gap: 4
   },
   historyPlant: {
     color: theme.colors.heading,
@@ -777,7 +809,10 @@ const styles = StyleSheet.create({
     fontSize: 12
   },
   deleteHistoryButton: {
-    alignSelf: "flex-start",
+    alignSelf: "stretch",
+    minWidth: 34,
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: theme.colors.background,
     borderRadius: theme.radius.sm,
     borderWidth: 1,
@@ -787,7 +822,7 @@ const styles = StyleSheet.create({
   },
   deleteHistoryText: {
     color: theme.colors.warning,
-    fontSize: 12,
+    fontSize: 18,
     fontWeight: "700"
   }
 });
