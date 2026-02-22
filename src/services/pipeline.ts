@@ -61,7 +61,7 @@ export const runPlantPipeline = async (
   const payload = (await response.json()) as BackendIdentifyResponse;
 
   return {
-    imageUri,
+    imageUri: "",
     classifiedAt: new Date().toISOString(),
     language,
     classification: payload.classification,

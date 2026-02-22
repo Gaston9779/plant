@@ -212,6 +212,7 @@ const fetchKnowledge = async (species, language) => {
     scientificName,
     family: gbif?.family || "Unknown",
     genus: gbif?.genus || "Unknown",
+    imageUrl: wiki?.originalimage?.source || wiki?.thumbnail?.source || null,
     publication: gbifDetails?.publishedIn || gbif?.scientificNameAuthorship || "Unknown",
     sourceSummary:
       wiki?.extract ||

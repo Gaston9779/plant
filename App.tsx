@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
+  Animated,
+  Easing,
   Image,
   Linking,
   Pressable,
@@ -9,12 +10,14 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import NetInfo from "@react-native-community/netinfo";
+import LottieView from "lottie-react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
 import { runPlantPipeline } from "./src/services/pipeline";
@@ -23,7 +26,7 @@ import { appendHistory, loadHistory, removeHistoryEntry } from "./src/storage/hi
 import { HistoryEntry, LanguageCode, PlantResult } from "./src/types";
 import { theme } from "./src/theme";
 
-const BUILD_MARKER = "build-2026-02-22-heic-fix-2";
+const BUILD_MARKER = "build-2026-02-22-wiki-image-lottie-loader";
 
 const copy: Record<
   LanguageCode,
@@ -199,16 +202,17 @@ const SectionCard = ({
 );
 
 export default function App() {
+  const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
   const [language, setLanguage] = useState<LanguageCode>("it");
   const [isLoading, setIsLoading] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [errorTechnical, setErrorTechnical] = useState<string | null>(null);
-  const [imageUri, setImageUri] = useState<string | null>(null);
   const [currentResult, setCurrentResult] = useState<PlantResult | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historyFilter, setHistoryFilter] = useState("");
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const loaderMotion = useRef(new Animated.Value(0)).current;
 
   const t = copy[language];
   const hfToken = process.env.EXPO_PUBLIC_HUGGINGFACE_TOKEN;
@@ -232,6 +236,15 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  useEffect(() => {
+    Animated.timing(loaderMotion, {
+      toValue: isLoading ? 1 : 0,
+      duration: 420,
+      easing: Easing.inOut(Easing.cubic),
+      useNativeDriver: true
+    }).start();
+  }, [isLoading, loaderMotion]);
+
   const filteredHistory = useMemo(() => {
     if (!historyFilter.trim()) return history;
     const query = historyFilter.trim().toLowerCase();
@@ -242,7 +255,6 @@ export default function App() {
     setIsLoading(true);
     setError(null);
     setErrorTechnical(null);
-    setImageUri(uri);
 
     try {
       const cached = await readCachedResult(uri, language);
@@ -334,10 +346,57 @@ export default function App() {
     setHistory(await removeHistoryEntry(id));
   };
 
+  const loaderTranslateX = loaderMotion.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, viewportWidth / 2 - 110]
+  });
+  const loaderTranslateY = loaderMotion.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, Math.max(140, viewportHeight / 2 - 180)]
+  });
+  const loaderScale = loaderMotion.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.2, 1]
+  });
+  const loaderBackdropOpacity = loaderMotion.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 0.2]
+  });
+  const loaderTextOpacity = loaderMotion.interpolate({
+    inputRange: [0, 0.4, 1],
+    outputRange: [0, 0, 1]
+  });
+  const lottiePlaybackProps = isLoading
+    ? { autoPlay: true, loop: true as const }
+    : { autoPlay: false, loop: false as const, progress: 0 };
+
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.safeArea}>
         <StatusBar style="dark" />
+        <Animated.View pointerEvents="none" style={[styles.loaderBackdrop, { opacity: loaderBackdropOpacity }]} />
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.loaderSprite,
+            {
+              transform: [
+                { translateX: loaderTranslateX },
+                { translateY: loaderTranslateY },
+                { scale: loaderScale }
+              ]
+            }
+          ]}
+        >
+          <LottieView
+            source={require("./src/assets/plant.json")}
+            style={styles.loaderLottie}
+            {...lottiePlaybackProps}
+          />
+        </Animated.View>
+        <Animated.View pointerEvents="none" style={[styles.loaderCenterLabel, { opacity: loaderTextOpacity }]}>
+          <Text style={styles.loaderCenterText}>{t.loading}</Text>
+        </Animated.View>
         <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
         <View style={styles.hero}>
           <View style={styles.heroTopRow}>
@@ -368,21 +427,14 @@ export default function App() {
           <Text style={styles.subtitle}>{t.appSubtitle}</Text>
 
           <View style={styles.actionsRow}>
-            <Pressable style={styles.primaryAction} onPress={handleCapture}>
+            <Pressable style={[styles.primaryAction, isLoading && styles.actionDisabled]} onPress={handleCapture} disabled={isLoading}>
               <Text style={styles.primaryActionText}>{t.capture}</Text>
             </Pressable>
-            <Pressable style={styles.secondaryAction} onPress={handleUpload}>
+            <Pressable style={[styles.secondaryAction, isLoading && styles.actionDisabled]} onPress={handleUpload} disabled={isLoading}>
               <Text style={styles.secondaryActionText}>{t.upload}</Text>
             </Pressable>
           </View>
         </View>
-
-        {isLoading && (
-          <View style={styles.loadingCard}>
-            <ActivityIndicator size="small" color={theme.colors.cta} />
-            <Text style={styles.loadingText}>{t.loading}</Text>
-          </View>
-        )}
 
         {error && <Text style={styles.errorText}>{error}</Text>}
         {errorTechnical && <Text style={styles.errorDetailText}>{errorTechnical}</Text>}
@@ -413,7 +465,9 @@ export default function App() {
         {currentResult && (
           <View style={styles.resultWrap}>
             <View style={styles.summaryCard}>
-              {imageUri && <Image source={{ uri: imageUri }} style={styles.previewImage} />}
+              {currentResult.knowledge.imageUrl && (
+                <Image source={{ uri: currentResult.knowledge.imageUrl }} style={styles.previewImage} />
+              )}
               <Text style={styles.plantHeading}>{currentResult.knowledge.commonName}</Text>
               <Text style={styles.plantSubheading}>{currentResult.knowledge.scientificName}</Text>
 
@@ -485,7 +539,6 @@ export default function App() {
                   style={styles.historyMainArea}
                   onPress={() => {
                     setCurrentResult(item.result);
-                    setImageUri(item.result.imageUri);
                   }}
                 >
                   <Text style={styles.historyPlant}>{item.result.knowledge.commonName}</Text>
@@ -516,6 +569,40 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: theme.colors.background
+  },
+  loaderBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "#0b1510",
+    zIndex: 8
+  },
+  loaderSprite: {
+    position: "absolute",
+    top: 120,
+    left: 28,
+    width: 220,
+    height: 220,
+    zIndex: 9
+  },
+  loaderLottie: {
+    width: "100%",
+    height: "100%"
+  },
+  loaderCenterLabel: {
+    position: "absolute",
+    top: "58%",
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    zIndex: 10
+  },
+  loaderCenterText: {
+    color: "#f5fbf3",
+    fontSize: 14,
+    fontWeight: "700",
+    backgroundColor: "rgba(13, 26, 20, 0.65)",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8
   },
   screen: {
     flex: 1
@@ -624,6 +711,9 @@ const styles = StyleSheet.create({
   secondaryActionText: {
     color: theme.colors.heading,
     fontWeight: "700"
+  },
+  actionDisabled: {
+    opacity: 0.5
   },
   loadingCard: {
     backgroundColor: theme.colors.card,

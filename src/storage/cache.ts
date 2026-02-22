@@ -39,11 +39,11 @@ export const saveCachedResult = async (
 
   const keys = Object.keys(cache);
   if (keys.length > 50) {
-    const sorted = Object.values(cache).sort(
-      (a, b) => new Date(b.classifiedAt).getTime() - new Date(a.classifiedAt).getTime()
+    const sortedEntries = Object.entries(cache).sort(
+      (a, b) => new Date(b[1].classifiedAt).getTime() - new Date(a[1].classifiedAt).getTime()
     );
-    const trimmed = sorted.slice(0, 50).reduce<CacheStore>((acc, item) => {
-      acc[buildKey(item.imageUri, item.language)] = item;
+    const trimmed = sortedEntries.slice(0, 50).reduce<CacheStore>((acc, [key, item]) => {
+      acc[key] = item;
       return acc;
     }, {});
 

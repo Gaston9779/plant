@@ -17,12 +17,16 @@ export const loadHistory = async (): Promise<HistoryEntry[]> => {
 
 export const appendHistory = async (result: PlantResult): Promise<HistoryEntry[]> => {
   const current = await loadHistory();
+  const resultWithoutPhoto: PlantResult = {
+    ...result,
+    imageUri: ""
+  };
 
   const entry: HistoryEntry = {
     id: `${Date.now()}`,
-    query: result.knowledge.commonName,
+    query: resultWithoutPhoto.knowledge.commonName,
     createdAt: new Date().toISOString(),
-    result
+    result: resultWithoutPhoto
   };
 
   const next = [entry, ...current].slice(0, 40);

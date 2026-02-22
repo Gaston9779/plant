@@ -23,6 +23,7 @@ export type PlantKnowledge = {
   scientificName: string;
   family: string;
   genus: string;
+  imageUrl?: string | null;
   sourceSummary: string;
   sourceLinks: string[];
 };
