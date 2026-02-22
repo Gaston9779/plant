@@ -66,7 +66,7 @@ const copy: Record<
     capture: "Scatta",
     upload: "Carica",
     loading: "Analisi reale della foto in corso...",
-    confidence: "Affidabilita",
+    confidence: "Affidabilità",
     alternatives: "Specie alternative",
     share: "Condividi scheda",
     history: "Cronologia ricerche",
@@ -83,9 +83,9 @@ const copy: Record<
     description: "Descrizione",
     historySection: "Storia",
     habitat: "Habitat",
-    toxicity: "Tossicita",
+    toxicity: "Tossicità",
     care: "Cura",
-    funFacts: "Curiosita"
+    funFacts: "Curiosità"
   },
   en: {
     appTitle: "Plant Discovery",
@@ -187,16 +187,22 @@ const sharePlantCard = async (result: PlantResult, language: LanguageCode): Prom
 const SectionCard = ({
   icon,
   title,
-  body
+  body,
+  onPress
 }: {
   icon: string;
   title: string;
   body: string;
+  onPress?: (() => void) | null;
 }) => (
-  <View style={styles.sectionCard}>
+  <Pressable
+    style={({ pressed }) => [styles.sectionCard, onPress && styles.sectionCardLink, pressed && onPress && styles.sectionCardPressed]}
+    onPress={onPress ?? undefined}
+    disabled={!onPress}
+  >
     <Text style={styles.sectionTitle}>{`${icon} ${title}`}</Text>
     <Text style={styles.sectionBody}>{body}</Text>
-  </View>
+  </Pressable>
 );
 
 export default function App() {
@@ -334,6 +340,7 @@ export default function App() {
   };
 
   const WebLottie = Platform.OS === "web" ? (require("lottie-react").default as any) : null;
+  const sectionLinks = currentResult?.knowledge.sectionLinks;
 
   return (
     <SafeAreaProvider>
@@ -427,8 +434,10 @@ export default function App() {
               {currentResult.knowledge.imageUrl && (
                 <Image source={{ uri: currentResult.knowledge.imageUrl }} style={styles.previewImage} />
               )}
-              <Text style={styles.plantHeading}>{currentResult.knowledge.commonName}</Text>
-              <Text style={styles.plantSubheading}>{currentResult.knowledge.scientificName}</Text>
+              <Text style={styles.plantHeading}>{currentResult.knowledge.scientificName}</Text>
+              <Text style={styles.plantSubheading}>
+                {currentResult.knowledge.commonName || currentResult.knowledge.family}
+              </Text>
 
               <View style={styles.confidencePill}>
                 <Text style={styles.confidenceText}>
@@ -470,12 +479,42 @@ export default function App() {
               </Pressable>
             </View>
 
-            <SectionCard icon="🌿" title={t.description} body={currentResult.narrative.description} />
-            <SectionCard icon="📜" title={t.historySection} body={currentResult.narrative.history} />
-            <SectionCard icon="🗺️" title={t.habitat} body={currentResult.narrative.habitat} />
-            <SectionCard icon="⚠️" title={t.toxicity} body={currentResult.narrative.toxicity} />
-            <SectionCard icon="🪴" title={t.care} body={currentResult.narrative.care} />
-            <SectionCard icon="✨" title={t.funFacts} body={currentResult.narrative.funFacts} />
+            <SectionCard
+              icon="🌿"
+              title={t.description}
+              body={currentResult.narrative.description}
+              onPress={sectionLinks?.description ? () => void openSourceLink(sectionLinks.description!) : null}
+            />
+            <SectionCard
+              icon="📜"
+              title={t.historySection}
+              body={currentResult.narrative.history}
+              onPress={sectionLinks?.history ? () => void openSourceLink(sectionLinks.history!) : null}
+            />
+            <SectionCard
+              icon="🗺️"
+              title={t.habitat}
+              body={currentResult.narrative.habitat}
+              onPress={sectionLinks?.habitat ? () => void openSourceLink(sectionLinks.habitat!) : null}
+            />
+            <SectionCard
+              icon="⚠️"
+              title={t.toxicity}
+              body={currentResult.narrative.toxicity}
+              onPress={sectionLinks?.toxicity ? () => void openSourceLink(sectionLinks.toxicity!) : null}
+            />
+            <SectionCard
+              icon="🪴"
+              title={t.care}
+              body={currentResult.narrative.care}
+              onPress={sectionLinks?.care ? () => void openSourceLink(sectionLinks.care!) : null}
+            />
+            <SectionCard
+              icon="✨"
+              title={t.funFacts}
+              body={currentResult.narrative.funFacts}
+              onPress={sectionLinks?.funFacts ? () => void openSourceLink(sectionLinks.funFacts!) : null}
+            />
           </View>
         )}
 
@@ -788,6 +827,12 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.cardBorder,
     padding: 12,
     gap: 6
+  },
+  sectionCardLink: {
+    borderColor: theme.colors.cta
+  },
+  sectionCardPressed: {
+    opacity: 0.85
   },
   sectionTitle: {
     color: theme.colors.heading,

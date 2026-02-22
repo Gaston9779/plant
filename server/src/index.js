@@ -30,8 +30,39 @@ const LANGUAGE_NAME = {
   en: "English",
   es: "Spanish"
 };
+const WIKI_SECTION_ANCHORS = {
+  it: {
+    description: "Descrizione",
+    history: "Storia",
+    habitat: "Habitat",
+    toxicity: "Tossicità",
+    care: "Coltivazione",
+    funFacts: "Curiosità"
+  },
+  en: {
+    description: "Description",
+    history: "History",
+    habitat: "Habitat",
+    toxicity: "Toxicity",
+    care: "Cultivation",
+    funFacts: "Trivia"
+  },
+  es: {
+    description: "Descripción",
+    history: "Historia",
+    habitat: "Hábitat",
+    toxicity: "Toxicidad",
+    care: "Cultivo",
+    funFacts: "Curiosidades"
+  }
+};
 
 const ORGAN_CANDIDATES = ["auto", "flower", "leaf"];
+const LANGUAGE_FALLBACKS = {
+  it: ["ita", "it", "en", "eng"],
+  en: ["eng", "en"],
+  es: ["spa", "es", "en", "eng"]
+};
 
 const parseJsonSafe = (value, fallback = null) => {
   try {
@@ -39,6 +70,30 @@ const parseJsonSafe = (value, fallback = null) => {
   } catch {
     return fallback;
   }
+};
+
+const buildSectionLinks = (wikiPageUrl, scientificName, language) => {
+  const safeLang = ["it", "en", "es"].includes(language) ? language : "en";
+  const anchors = WIKI_SECTION_ANCHORS[safeLang];
+
+  if (wikiPageUrl) {
+    return Object.entries(anchors).reduce((acc, [key, anchor]) => {
+      acc[key] = `${wikiPageUrl}#${encodeURIComponent(anchor)}`;
+      return acc;
+    }, {});
+  }
+
+  const wikiSearchBase = `https://${safeLang}.wikipedia.org/w/index.php?search=${encodeURIComponent(
+    scientificName
+  )}`;
+  return {
+    description: `${wikiSearchBase}%20description`,
+    history: `${wikiSearchBase}%20history`,
+    habitat: `${wikiSearchBase}%20habitat`,
+    toxicity: `${wikiSearchBase}%20toxicity`,
+    care: `${wikiSearchBase}%20cultivation`,
+    funFacts: `${wikiSearchBase}%20facts`
+  };
 };
 
 const extractHttpError = async (response) => {
@@ -173,6 +228,37 @@ const searchWikiTitle = async (query, lang) => {
   return data?.[1]?.[0] || null;
 };
 
+const normalizeName = (value) =>
+  String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const fetchGbifCommonName = async (usageKey, language) => {
+  if (!usageKey) return null;
+  const response = await fetch(
+    `https://api.gbif.org/v1/species/${usageKey}/vernacularNames?limit=200`
+  );
+  if (!response.ok) return null;
+
+  const payload = await response.json();
+  const results = Array.isArray(payload?.results) ? payload.results : [];
+  if (!results.length) return null;
+
+  const fallbacks = LANGUAGE_FALLBACKS[language] || LANGUAGE_FALLBACKS.en;
+  for (const code of fallbacks) {
+    const match = results.find((item) => {
+      const lang = String(item?.language || "").toLowerCase();
+      return lang === code && typeof item?.vernacularName === "string";
+    });
+    if (match?.vernacularName) return String(match.vernacularName);
+  }
+
+  const first = results.find((item) => typeof item?.vernacularName === "string");
+  return first?.vernacularName ? String(first.vernacularName) : null;
+};
+
 const fetchKnowledge = async (species, language) => {
   const wikiPrimary = await fetchWikiSummary(species, language);
   let wiki = wikiPrimary;
@@ -205,14 +291,23 @@ const fetchKnowledge = async (species, language) => {
   }
 
   const scientificName = gbif?.canonicalName || species;
+  const wikiTitle = wiki?.title || null;
+  const gbifCommonName = await fetchGbifCommonName(gbif?.usageKey, language);
+  const wikiLooksScientific =
+    wikiTitle && normalizeName(wikiTitle) === normalizeName(scientificName);
+  const commonName =
+    gbifCommonName ||
+    (!wikiLooksScientific && wikiTitle ? wikiTitle : null) ||
+    (gbif?.family && gbif.family !== "Unknown" ? gbif.family : scientificName);
 
   return {
     species: scientificName,
-    commonName: wiki?.title || scientificName,
+    commonName,
     scientificName,
     family: gbif?.family || "Unknown",
     genus: gbif?.genus || "Unknown",
     imageUrl: wiki?.originalimage?.source || wiki?.thumbnail?.source || null,
+    sectionLinks: buildSectionLinks(wiki?.content_urls?.desktop?.page || null, scientificName, language),
     publication: gbifDetails?.publishedIn || gbif?.scientificNameAuthorship || "Unknown",
     sourceSummary:
       wiki?.extract ||
@@ -225,15 +320,15 @@ const fallbackNarrative = (knowledge, language) => {
   if (language === "it") {
     const publication =
       knowledge.publication && knowledge.publication !== "Unknown"
-        ? ` La denominazione botanica e collegata a: ${knowledge.publication}.`
+        ? ` La denominazione botanica è collegata a: ${knowledge.publication}.`
         : "";
     return {
       description: `${knowledge.commonName} (${knowledge.scientificName}) appartiene alla famiglia ${knowledge.family} e al genere ${knowledge.genus}.`,
-      history: `${knowledge.scientificName} e una specie riconosciuta nella classificazione botanica moderna.${publication}`,
+      history: `${knowledge.scientificName} è una specie riconosciuta nella classificazione botanica moderna.${publication}`,
       habitat: `Il genere ${knowledge.genus} comprende habitat diversi in base alla specie e al clima.`,
-      toxicity: "La tossicita varia per specie e dose; verifica sempre con fonti botaniche o veterinarie affidabili.",
+      toxicity: "La tossicità varia per specie e dose; verifica sempre con fonti botaniche o veterinarie affidabili.",
       care: "Fornisci luce adeguata, irrigazione moderata e drenaggio corretto. Adatta la cura alla specie identificata.",
-      funFacts: `${knowledge.commonName} e apprezzata per morfologia e adattamento ecologico.`
+      funFacts: `${knowledge.commonName} è apprezzata per morfologia e adattamento ecologico.`
     };
   }
 
@@ -287,6 +382,7 @@ const generateNarrative = async (knowledge, language) => {
     "Keep each field concise and factual (1-2 sentences).",
     "All output fields must be in the requested language only.",
     "If any source sentence is in another language, translate it fully.",
+    "Use correct orthography: accents and apostrophes must be preserved when required by the language.",
     "Do not include markdown or code fences.",
     `Keep scientific name unchanged: \"${knowledge.scientificName}\".`,
     `Keep common name unchanged: \"${knowledge.commonName}\".`,

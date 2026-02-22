@@ -24,6 +24,14 @@ export type PlantKnowledge = {
   family: string;
   genus: string;
   imageUrl?: string | null;
+  sectionLinks?: {
+    description?: string;
+    history?: string;
+    habitat?: string;
+    toxicity?: string;
+    care?: string;
+    funFacts?: string;
+  };
   sourceSummary: string;
   sourceLinks: string[];
 };
