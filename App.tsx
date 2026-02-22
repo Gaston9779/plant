@@ -500,7 +500,7 @@ export default function App() {
                     void handleDeleteHistory(item.id);
                   }}
                 >
-                  <Text style={styles.deleteHistoryText}>→</Text>
+                  <Text style={styles.deleteHistoryText}>×</Text>
                 </Pressable>
               </View>
             ))
