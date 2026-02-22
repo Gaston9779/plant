@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Image,
   Linking,
+  Platform,
   Pressable,
   ScrollView,
   Share,
@@ -14,7 +16,6 @@ import { StatusBar } from "expo-status-bar";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import NetInfo from "@react-native-community/netinfo";
-import LottieView from "lottie-react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
 import { runPlantPipeline } from "./src/services/pipeline";
@@ -332,6 +333,8 @@ export default function App() {
     setHistory(await removeHistoryEntry(id));
   };
 
+  const WebLottie = Platform.OS === "web" ? (require("lottie-react").default as any) : null;
+
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.safeArea}>
@@ -339,12 +342,18 @@ export default function App() {
         {isLoading && (
           <View pointerEvents="none" style={styles.loaderOverlay}>
             <View style={styles.loaderBackdrop} />
-            <LottieView
-              source={require("./src/assets/plant.json")}
-              style={styles.loaderCentered}
-              autoPlay
-              loop
-            />
+            {WebLottie ? (
+              <WebLottie
+                animationData={require("./src/assets/plant.json")}
+                loop
+                autoplay
+                style={styles.loaderCentered}
+              />
+            ) : (
+              <View style={styles.loaderNativeFallback}>
+                <ActivityIndicator size="large" color={theme.colors.cta} />
+              </View>
+            )}
           </View>
         )}
         <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
@@ -533,6 +542,14 @@ const styles = StyleSheet.create({
   loaderCentered: {
     width: 260,
     height: 260
+  },
+  loaderNativeFallback: {
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(245, 251, 243, 0.92)"
   },
   screen: {
     flex: 1
