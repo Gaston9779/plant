@@ -63,6 +63,11 @@ const LANGUAGE_FALLBACKS = {
   en: ["eng", "en"],
   es: ["spa", "es", "en", "eng"]
 };
+const EOL_LANGUAGE_FALLBACKS = {
+  it: ["it", "en"],
+  en: ["en"],
+  es: ["es", "en"]
+};
 
 const parseJsonSafe = (value, fallback = null) => {
   try {
@@ -72,28 +77,58 @@ const parseJsonSafe = (value, fallback = null) => {
   }
 };
 
-const buildSectionLinks = (wikiPageUrl, scientificName, language) => {
+const buildSectionLinks = (wikiPageUrl, scientificName, language, sourceLinks = {}) => {
   const safeLang = ["it", "en", "es"].includes(language) ? language : "en";
   const anchors = WIKI_SECTION_ANCHORS[safeLang];
-
-  if (wikiPageUrl) {
-    return Object.entries(anchors).reduce((acc, [key, anchor]) => {
-      acc[key] = `${wikiPageUrl}#${encodeURIComponent(anchor)}`;
-      return acc;
-    }, {});
-  }
 
   const wikiSearchBase = `https://${safeLang}.wikipedia.org/w/index.php?search=${encodeURIComponent(
     scientificName
   )}`;
+  const wikiAnchored = wikiPageUrl
+    ? Object.entries(anchors).reduce((acc, [key, anchor]) => {
+        acc[key] = `${wikiPageUrl}#${encodeURIComponent(anchor)}`;
+        return acc;
+      }, {})
+    : {
+        description: `${wikiSearchBase}%20description`,
+        history: `${wikiSearchBase}%20history`,
+        habitat: `${wikiSearchBase}%20habitat`,
+        toxicity: `${wikiSearchBase}%20toxicity`,
+        care: `${wikiSearchBase}%20cultivation`,
+        funFacts: `${wikiSearchBase}%20facts`
+      };
+
   return {
-    description: `${wikiSearchBase}%20description`,
-    history: `${wikiSearchBase}%20history`,
-    habitat: `${wikiSearchBase}%20habitat`,
-    toxicity: `${wikiSearchBase}%20toxicity`,
-    care: `${wikiSearchBase}%20cultivation`,
-    funFacts: `${wikiSearchBase}%20facts`
+    description: wikiAnchored.description,
+    history: sourceLinks.history || wikiAnchored.history,
+    habitat: sourceLinks.habitat || wikiAnchored.habitat,
+    toxicity: sourceLinks.toxicity || wikiAnchored.toxicity,
+    care: sourceLinks.care || wikiAnchored.care,
+    funFacts: sourceLinks.funFacts || wikiAnchored.funFacts
   };
+};
+
+const stripHtml = (value) =>
+  String(value || "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const truncateText = (value, maxLen = 260) => {
+  const clean = String(value || "").trim();
+  if (clean.length <= maxLen) return clean;
+  return `${clean.slice(0, maxLen - 1).trimEnd()}…`;
+};
+
+const regionNameFromCode = (code, language) => {
+  try {
+    const locale = language === "it" ? "it-IT" : language === "es" ? "es-ES" : "en-US";
+    const displayNames = new Intl.DisplayNames([locale], { type: "region" });
+    return displayNames.of(code) || code;
+  } catch {
+    return code;
+  }
 };
 
 const extractHttpError = async (response) => {
@@ -259,6 +294,99 @@ const fetchGbifCommonName = async (usageKey, language) => {
   return first?.vernacularName ? String(first.vernacularName) : null;
 };
 
+const fetchGbifHabitatEvidence = async (usageKey, scientificName, language) => {
+  if (!usageKey) return null;
+  const speciesPage = `https://www.gbif.org/species/${usageKey}`;
+  const [distributionsResponse, occurrenceResponse] = await Promise.all([
+    fetch(`https://api.gbif.org/v1/species/${usageKey}/distributions?limit=40`),
+    fetch(
+      `https://api.gbif.org/v1/occurrence/search?taxonKey=${usageKey}&limit=0&facet=country&facetLimit=8`
+    )
+  ]);
+
+  const areas = new Set();
+  if (distributionsResponse.ok) {
+    const distributions = await distributionsResponse.json();
+    const results = Array.isArray(distributions?.results) ? distributions.results : [];
+    for (const item of results) {
+      const label = item?.locationId || item?.locality || item?.country || null;
+      if (label && String(label).length > 1) areas.add(String(label));
+      if (areas.size >= 6) break;
+    }
+  }
+
+  const countries = [];
+  if (occurrenceResponse.ok) {
+    const occurrence = await occurrenceResponse.json();
+    const counts = occurrence?.facets?.[0]?.counts || [];
+    for (const row of counts.slice(0, 6)) {
+      const code = String(row?.name || "").toUpperCase();
+      if (!code) continue;
+      countries.push(regionNameFromCode(code, language));
+    }
+  }
+
+  if (!areas.size && !countries.length) return null;
+
+  const areaList = [...areas].slice(0, 4).join(", ");
+  const countryList = countries.slice(0, 4).join(", ");
+  const parts = [];
+  if (areaList) parts.push(areaList);
+  if (countryList) parts.push(countryList);
+  const textBase =
+    language === "it"
+      ? `Distribuzione documentata GBIF per ${scientificName}: ${parts.join(" | ")}.`
+      : language === "es"
+      ? `Distribucion documentada en GBIF para ${scientificName}: ${parts.join(" | ")}.`
+      : `GBIF documented distribution for ${scientificName}: ${parts.join(" | ")}.`;
+
+  return {
+    text: truncateText(textBase, 280),
+    sourceUrl: speciesPage
+  };
+};
+
+const fetchEolEvidence = async (scientificName, language) => {
+  const safeLanguage = ["it", "en", "es"].includes(language) ? language : "en";
+  const searchResponse = await fetch(
+    `https://eol.org/api/search/1.0.json?q=${encodeURIComponent(scientificName)}&page=1&exact=true`
+  );
+  if (!searchResponse.ok) return null;
+  const searchData = await searchResponse.json();
+  const firstResult = searchData?.results?.[0];
+  if (!firstResult?.id) return null;
+
+  const pageId = firstResult.id;
+  const pageUrl = `https://eol.org/pages/${pageId}`;
+  const pageResponse = await fetch(
+    `https://eol.org/api/pages/1.0/${pageId}.json?details=true&taxonomy=false&images_per_page=0&videos_per_page=0&sounds_per_page=0&maps_per_page=0&texts_per_page=40&language=en`
+  );
+  if (!pageResponse.ok) return null;
+  const pageData = await pageResponse.json();
+  const dataObjects = Array.isArray(pageData?.taxonConcept?.dataObjects)
+    ? pageData.taxonConcept.dataObjects
+    : [];
+  if (!dataObjects.length) return null;
+
+  const languageFallbacks = EOL_LANGUAGE_FALLBACKS[safeLanguage] || EOL_LANGUAGE_FALLBACKS.en;
+  const texts = dataObjects
+    .filter((item) => item?.dataType === "http://purl.org/dc/dcmitype/Text")
+    .filter((item) => languageFallbacks.includes(String(item?.language || "").toLowerCase()))
+    .map((item) => stripHtml(item?.description || ""))
+    .filter(Boolean)
+    .filter((text) => text.length > 80);
+
+  if (!texts.length) return null;
+
+  const historyText = truncateText(texts[0], 280);
+  const funFactsText = truncateText(texts[1] || texts[0], 240);
+  return {
+    historyText,
+    funFactsText,
+    sourceUrl: pageUrl
+  };
+};
+
 const fetchKnowledge = async (species, language) => {
   const wikiPrimary = await fetchWikiSummary(species, language);
   let wiki = wikiPrimary;
@@ -293,12 +421,20 @@ const fetchKnowledge = async (species, language) => {
   const scientificName = gbif?.canonicalName || species;
   const wikiTitle = wiki?.title || null;
   const gbifCommonName = await fetchGbifCommonName(gbif?.usageKey, language);
+  const gbifHabitat = await fetchGbifHabitatEvidence(gbif?.usageKey, scientificName, language);
+  const eolEvidence = await fetchEolEvidence(scientificName, language);
   const wikiLooksScientific =
     wikiTitle && normalizeName(wikiTitle) === normalizeName(scientificName);
   const commonName =
     gbifCommonName ||
     (!wikiLooksScientific && wikiTitle ? wikiTitle : null) ||
     (gbif?.family && gbif.family !== "Unknown" ? gbif.family : scientificName);
+
+  const externalEvidence = {
+    habitat: gbifHabitat?.text || null,
+    history: eolEvidence?.historyText || null,
+    funFacts: eolEvidence?.funFactsText || null
+  };
 
   return {
     species: scientificName,
@@ -307,16 +443,29 @@ const fetchKnowledge = async (species, language) => {
     family: gbif?.family || "Unknown",
     genus: gbif?.genus || "Unknown",
     imageUrl: wiki?.originalimage?.source || wiki?.thumbnail?.source || null,
-    sectionLinks: buildSectionLinks(wiki?.content_urls?.desktop?.page || null, scientificName, language),
+    sectionLinks: buildSectionLinks(wiki?.content_urls?.desktop?.page || null, scientificName, language, {
+      history: eolEvidence?.sourceUrl || null,
+      habitat: gbifHabitat?.sourceUrl || null,
+      funFacts: eolEvidence?.sourceUrl || null
+    }),
+    externalEvidence,
     publication: gbifDetails?.publishedIn || gbif?.scientificNameAuthorship || "Unknown",
     sourceSummary:
       wiki?.extract ||
       `No encyclopedia summary available for ${scientificName}. GBIF metadata was used where available.`,
-    sourceLinks: [wiki?.content_urls?.desktop?.page, "https://api.gbif.org/v1/species/match"].filter(Boolean)
+    sourceLinks: [
+      wiki?.content_urls?.desktop?.page,
+      gbifHabitat?.sourceUrl,
+      eolEvidence?.sourceUrl,
+      "https://api.gbif.org/v1/species/match"
+    ].filter(Boolean)
   };
 };
 
 const fallbackNarrative = (knowledge, language) => {
+  const evidenceHabitat = knowledge?.externalEvidence?.habitat;
+  const evidenceHistory = knowledge?.externalEvidence?.history;
+  const evidenceFunFacts = knowledge?.externalEvidence?.funFacts;
   if (language === "it") {
     const publication =
       knowledge.publication && knowledge.publication !== "Unknown"
@@ -324,11 +473,11 @@ const fallbackNarrative = (knowledge, language) => {
         : "";
     return {
       description: `${knowledge.commonName} (${knowledge.scientificName}) appartiene alla famiglia ${knowledge.family} e al genere ${knowledge.genus}.`,
-      history: `${knowledge.scientificName} è una specie riconosciuta nella classificazione botanica moderna.${publication}`,
-      habitat: `Il genere ${knowledge.genus} comprende habitat diversi in base alla specie e al clima.`,
+      history: evidenceHistory || `${knowledge.scientificName} è una specie riconosciuta nella classificazione botanica moderna.${publication}`,
+      habitat: evidenceHabitat || `Il genere ${knowledge.genus} comprende habitat diversi in base alla specie e al clima.`,
       toxicity: "La tossicità varia per specie e dose; verifica sempre con fonti botaniche o veterinarie affidabili.",
       care: "Fornisci luce adeguata, irrigazione moderata e drenaggio corretto. Adatta la cura alla specie identificata.",
-      funFacts: `${knowledge.commonName} è apprezzata per morfologia e adattamento ecologico.`
+      funFacts: evidenceFunFacts || `${knowledge.commonName} è apprezzata per morfologia e adattamento ecologico.`
     };
   }
 
@@ -339,11 +488,11 @@ const fallbackNarrative = (knowledge, language) => {
         : "";
     return {
       description: `${knowledge.commonName} (${knowledge.scientificName}) pertenece a la familia ${knowledge.family} y al genero ${knowledge.genus}.`,
-      history: `${knowledge.scientificName} es una especie reconocida dentro de la clasificacion botanica moderna.${publication}`,
-      habitat: `El genero ${knowledge.genus} abarca habitats distintos segun la especie y el clima.`,
+      history: evidenceHistory || `${knowledge.scientificName} es una especie reconocida dentro de la clasificacion botanica moderna.${publication}`,
+      habitat: evidenceHabitat || `El genero ${knowledge.genus} abarca habitats distintos segun la especie y el clima.`,
       toxicity: "La toxicidad varia por especie y dosis; confirma con fuentes botanicas o veterinarias fiables.",
       care: "Proporciona luz adecuada, riego moderado y buen drenaje. Ajusta el cuidado a la especie identificada.",
-      funFacts: `${knowledge.commonName} es apreciada por su morfologia y adaptacion ecologica.`
+      funFacts: evidenceFunFacts || `${knowledge.commonName} es apreciada por su morfologia y adaptacion ecologica.`
     };
   }
 
@@ -354,10 +503,12 @@ const fallbackNarrative = (knowledge, language) => {
         ? `Its naming context is linked to: ${knowledge.publication}.`
         : ""
     }`,
-    habitat: `The genus ${knowledge.genus} spans different habitats by species and climate range.`,
+    habitat: evidenceHabitat || `The genus ${knowledge.genus} spans different habitats by species and climate range.`,
     toxicity: "Toxicity varies by species and dose; confirm with trusted botanical or veterinary sources.",
     care: "Provide adequate light, moderate irrigation, and proper drainage. Adapt care to the exact species.",
-    funFacts: `${knowledge.commonName} is commonly appreciated for its morphology and ecological adaptation traits.`
+    funFacts:
+      evidenceFunFacts ||
+      `${knowledge.commonName} is commonly appreciated for its morphology and ecological adaptation traits.`
   };
 };
 
@@ -383,6 +534,8 @@ const generateNarrative = async (knowledge, language) => {
     "All output fields must be in the requested language only.",
     "If any source sentence is in another language, translate it fully.",
     "Use correct orthography: accents and apostrophes must be preserved when required by the language.",
+    "Use source grounding: keep description from Wikipedia summary, habitat from GBIF evidence, and history/funFacts from EOL evidence when provided.",
+    "If a source field is missing, write a concise 'data not available' sentence instead of inventing details.",
     "Do not include markdown or code fences.",
     `Keep scientific name unchanged: \"${knowledge.scientificName}\".`,
     `Keep common name unchanged: \"${knowledge.commonName}\".`,
@@ -414,6 +567,15 @@ const generateNarrative = async (knowledge, language) => {
 
   const required = ["description", "history", "habitat", "toxicity", "care", "funFacts"];
   if (!required.every((key) => typeof parsed[key] === "string")) return fallbackNarrative(knowledge, safeLanguage);
+  if (knowledge?.externalEvidence?.habitat && typeof knowledge.externalEvidence.habitat === "string") {
+    parsed.habitat = knowledge.externalEvidence.habitat;
+  }
+  if (knowledge?.externalEvidence?.history && typeof knowledge.externalEvidence.history === "string") {
+    parsed.history = knowledge.externalEvidence.history;
+  }
+  if (knowledge?.externalEvidence?.funFacts && typeof knowledge.externalEvidence.funFacts === "string") {
+    parsed.funFacts = knowledge.externalEvidence.funFacts;
+  }
   return parsed;
 };
 
