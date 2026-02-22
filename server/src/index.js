@@ -77,6 +77,20 @@ const parseJsonSafe = (value, fallback = null) => {
   }
 };
 
+const fetchJsonOrNull = async (url, options = {}, timeoutMs = 9000) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 const buildSectionLinks = (wikiPageUrl, scientificName, language, sourceLinks = {}) => {
   const safeLang = ["it", "en", "es"].includes(language) ? language : "en";
   const anchors = WIKI_SECTION_ANCHORS[safeLang];
@@ -272,12 +286,10 @@ const normalizeName = (value) =>
 
 const fetchGbifCommonName = async (usageKey, language) => {
   if (!usageKey) return null;
-  const response = await fetch(
+  const payload = await fetchJsonOrNull(
     `https://api.gbif.org/v1/species/${usageKey}/vernacularNames?limit=200`
   );
-  if (!response.ok) return null;
-
-  const payload = await response.json();
+  if (!payload) return null;
   const results = Array.isArray(payload?.results) ? payload.results : [];
   if (!results.length) return null;
 
@@ -297,16 +309,15 @@ const fetchGbifCommonName = async (usageKey, language) => {
 const fetchGbifHabitatEvidence = async (usageKey, scientificName, language) => {
   if (!usageKey) return null;
   const speciesPage = `https://www.gbif.org/species/${usageKey}`;
-  const [distributionsResponse, occurrenceResponse] = await Promise.all([
-    fetch(`https://api.gbif.org/v1/species/${usageKey}/distributions?limit=40`),
-    fetch(
+  const [distributions, occurrence] = await Promise.all([
+    fetchJsonOrNull(`https://api.gbif.org/v1/species/${usageKey}/distributions?limit=40`),
+    fetchJsonOrNull(
       `https://api.gbif.org/v1/occurrence/search?taxonKey=${usageKey}&limit=0&facet=country&facetLimit=8`
     )
   ]);
 
   const areas = new Set();
-  if (distributionsResponse.ok) {
-    const distributions = await distributionsResponse.json();
+  if (distributions) {
     const results = Array.isArray(distributions?.results) ? distributions.results : [];
     for (const item of results) {
       const label = item?.locationId || item?.locality || item?.country || null;
@@ -316,8 +327,7 @@ const fetchGbifHabitatEvidence = async (usageKey, scientificName, language) => {
   }
 
   const countries = [];
-  if (occurrenceResponse.ok) {
-    const occurrence = await occurrenceResponse.json();
+  if (occurrence) {
     const counts = occurrence?.facets?.[0]?.counts || [];
     for (const row of counts.slice(0, 6)) {
       const code = String(row?.name || "").toUpperCase();
@@ -348,21 +358,19 @@ const fetchGbifHabitatEvidence = async (usageKey, scientificName, language) => {
 
 const fetchEolEvidence = async (scientificName, language) => {
   const safeLanguage = ["it", "en", "es"].includes(language) ? language : "en";
-  const searchResponse = await fetch(
+  const searchData = await fetchJsonOrNull(
     `https://eol.org/api/search/1.0.json?q=${encodeURIComponent(scientificName)}&page=1&exact=true`
   );
-  if (!searchResponse.ok) return null;
-  const searchData = await searchResponse.json();
+  if (!searchData) return null;
   const firstResult = searchData?.results?.[0];
   if (!firstResult?.id) return null;
 
   const pageId = firstResult.id;
   const pageUrl = `https://eol.org/pages/${pageId}`;
-  const pageResponse = await fetch(
+  const pageData = await fetchJsonOrNull(
     `https://eol.org/api/pages/1.0/${pageId}.json?details=true&taxonomy=false&images_per_page=0&videos_per_page=0&sounds_per_page=0&maps_per_page=0&texts_per_page=40&language=en`
   );
-  if (!pageResponse.ok) return null;
-  const pageData = await pageResponse.json();
+  if (!pageData) return null;
   const dataObjects = Array.isArray(pageData?.taxonConcept?.dataObjects)
     ? pageData.taxonConcept.dataObjects
     : [];
@@ -404,14 +412,12 @@ const fetchKnowledge = async (species, language) => {
     }
   }
 
-  const gbifResponse = await fetch(
+  const gbif = await fetchJsonOrNull(
     `https://api.gbif.org/v1/species/match?name=${encodeURIComponent(species)}`
   );
-  const gbif = gbifResponse.ok ? await gbifResponse.json() : null;
   let gbifDetails = null;
   if (gbif?.usageKey) {
-    const detailsResponse = await fetch(`https://api.gbif.org/v1/species/${gbif.usageKey}`);
-    gbifDetails = detailsResponse.ok ? await detailsResponse.json() : null;
+    gbifDetails = await fetchJsonOrNull(`https://api.gbif.org/v1/species/${gbif.usageKey}`);
   }
 
   if (!wiki && !gbif) {
@@ -603,7 +609,9 @@ app.post(
     { name: "IMAGE", maxCount: 1 }
   ]),
   async (req, res) => {
+  let stage = "start";
   try {
+    stage = "validate-upload";
     const files = req.files || {};
     const imageFile = files?.image?.[0] || files?.IMAGE?.[0] || null;
 
@@ -617,10 +625,14 @@ app.post(
     const language = (req.body?.language || "en").toLowerCase();
     const safeLang = ["it", "en", "es"].includes(language) ? language : "en";
 
+    stage = "classify-species";
     const classification = await classifyPlantNet(imageFile.buffer, imageFile.mimetype || "image/jpeg");
+    stage = "classify-disease";
     classification.disease = await classifyDiseaseHF(imageFile.buffer, imageFile.mimetype || "image/jpeg");
 
+    stage = "knowledge";
     const knowledge = await fetchKnowledge(classification.topSpecies, safeLang);
+    stage = "narrative";
     const narrative = await generateNarrative(knowledge, safeLang);
 
     res.json({
@@ -630,7 +642,7 @@ app.post(
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown server error";
-    res.status(500).json({ error: message });
+    res.status(500).json({ error: `identify failed at ${stage}: ${message}` });
   }
   }
 );
