@@ -24,6 +24,7 @@ export type PlantKnowledge = {
   family: string;
   genus: string;
   imageUrl?: string | null;
+  habitatMapPreviewUrl?: string | null;
   sectionLinks?: {
     description?: string;
     history?: string;

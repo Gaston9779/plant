@@ -497,6 +497,20 @@ export default function App() {
               body={currentResult.narrative.habitat}
               onPress={sectionLinks?.habitat ? () => void openSourceLink(sectionLinks.habitat!) : null}
             />
+            {currentResult.knowledge.habitatMapPreviewUrl && sectionLinks?.habitat && (
+              <Pressable
+                style={styles.mapPreviewCard}
+                onPress={() => {
+                  void openSourceLink(sectionLinks.habitat!);
+                }}
+              >
+                <Text style={styles.mapPreviewTitle}>GBIF Map Preview</Text>
+                <Image
+                  source={{ uri: currentResult.knowledge.habitatMapPreviewUrl }}
+                  style={styles.mapPreviewImage}
+                />
+              </Pressable>
+            )}
             <SectionCard
               icon="⚠️"
               title={t.toxicity}
@@ -843,6 +857,24 @@ const styles = StyleSheet.create({
     color: theme.colors.textPrimary,
     lineHeight: 21,
     fontSize: 14
+  },
+  mapPreviewCard: {
+    backgroundColor: theme.colors.card,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.cardBorder,
+    padding: 10,
+    gap: 8
+  },
+  mapPreviewTitle: {
+    color: theme.colors.heading,
+    fontWeight: "700",
+    fontSize: 13
+  },
+  mapPreviewImage: {
+    width: "100%",
+    height: 120,
+    borderRadius: theme.radius.sm
   },
   historySectionWrap: {
     marginTop: 2,

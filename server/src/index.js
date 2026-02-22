@@ -284,6 +284,14 @@ const normalizeName = (value) =>
     .replace(/\s+/g, " ")
     .trim();
 
+const isLikelyScientificName = (value, scientificName) => {
+  const normalized = normalizeName(value);
+  const normalizedScientific = normalizeName(scientificName);
+  if (!normalized) return false;
+  if (normalized === normalizedScientific) return true;
+  return /^[a-z]+ [a-z]+(?: [a-z]+)?$/.test(normalized);
+};
+
 const fetchGbifCommonName = async (usageKey, language) => {
   if (!usageKey) return null;
   const payload = await fetchJsonOrNull(
@@ -309,6 +317,7 @@ const fetchGbifCommonName = async (usageKey, language) => {
 const fetchGbifHabitatEvidence = async (usageKey, scientificName, language) => {
   if (!usageKey) return null;
   const speciesPage = `https://www.gbif.org/species/${usageKey}`;
+  const mapPreviewUrl = `https://api.gbif.org/v2/map/occurrence/density/0/0/0@1x.png?taxonKey=${usageKey}&srs=EPSG:3857&style=classic.point`;
   const [distributions, occurrence] = await Promise.all([
     fetchJsonOrNull(`https://api.gbif.org/v1/species/${usageKey}/distributions?limit=40`),
     fetchJsonOrNull(
@@ -321,7 +330,9 @@ const fetchGbifHabitatEvidence = async (usageKey, scientificName, language) => {
     const results = Array.isArray(distributions?.results) ? distributions.results : [];
     for (const item of results) {
       const label = item?.locationId || item?.locality || item?.country || null;
-      if (label && String(label).length > 1) areas.add(String(label));
+      const text = String(label || "").trim();
+      const isCoordinate = /^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/.test(text);
+      if (text && text.length > 1 && !isCoordinate) areas.add(text);
       if (areas.size >= 6) break;
     }
   }
@@ -352,7 +363,8 @@ const fetchGbifHabitatEvidence = async (usageKey, scientificName, language) => {
 
   return {
     text: truncateText(textBase, 280),
-    sourceUrl: speciesPage
+    sourceUrl: speciesPage,
+    mapPreviewUrl
   };
 };
 
@@ -377,17 +389,38 @@ const fetchEolEvidence = async (scientificName, language) => {
   if (!dataObjects.length) return null;
 
   const languageFallbacks = EOL_LANGUAGE_FALLBACKS[safeLanguage] || EOL_LANGUAGE_FALLBACKS.en;
-  const texts = dataObjects
+  const cleaned = dataObjects
     .filter((item) => item?.dataType === "http://purl.org/dc/dcmitype/Text")
-    .filter((item) => languageFallbacks.includes(String(item?.language || "").toLowerCase()))
-    .map((item) => stripHtml(item?.description || ""))
+    .map((item) => ({
+      text: stripHtml(item?.description || ""),
+      language: String(item?.language || "").toLowerCase(),
+      subject: Array.isArray(item?.subject)
+        ? item.subject.map((v) => String(v).toLowerCase()).join(" ")
+        : String(item?.subject || "").toLowerCase()
+    }))
     .filter(Boolean)
-    .filter((text) => text.length > 80);
+    .filter((item) => item.text.length > 80);
 
-  if (!texts.length) return null;
+  if (!cleaned.length) return null;
 
-  const historyText = truncateText(texts[0], 280);
-  const funFactsText = truncateText(texts[1] || texts[0], 240);
+  const preferred = cleaned.filter((item) => languageFallbacks.includes(item.language));
+  const english = cleaned.filter((item) => item.language === "en");
+  const latinScript = cleaned.filter((item) => /[A-Za-zÀ-ÖØ-öø-ÿ]/.test(item.text));
+  const pool = preferred.length ? preferred : english.length ? english : latinScript.length ? latinScript : cleaned;
+
+  const sorted = [...pool].sort((a, b) => {
+    const aScore =
+      (a.subject.includes("brief summary") ? 3 : 0) +
+      (a.subject.includes("comprehensive description") ? 2 : 0);
+    const bScore =
+      (b.subject.includes("brief summary") ? 3 : 0) +
+      (b.subject.includes("comprehensive description") ? 2 : 0);
+    return bScore - aScore;
+  });
+
+  const historyText = truncateText(sorted[0]?.text || "", 280);
+  const funFactsText = truncateText(sorted[1]?.text || sorted[0]?.text || "", 240);
+  if (!historyText) return null;
   return {
     historyText,
     funFactsText,
@@ -429,11 +462,11 @@ const fetchKnowledge = async (species, language) => {
   const gbifCommonName = await fetchGbifCommonName(gbif?.usageKey, language);
   const gbifHabitat = await fetchGbifHabitatEvidence(gbif?.usageKey, scientificName, language);
   const eolEvidence = await fetchEolEvidence(scientificName, language);
-  const wikiLooksScientific =
-    wikiTitle && normalizeName(wikiTitle) === normalizeName(scientificName);
+  const wikiLooksScientific = wikiTitle && isLikelyScientificName(wikiTitle, scientificName);
+  const gbifLooksScientific = gbifCommonName && isLikelyScientificName(gbifCommonName, scientificName);
   const commonName =
-    gbifCommonName ||
     (!wikiLooksScientific && wikiTitle ? wikiTitle : null) ||
+    (!gbifLooksScientific ? gbifCommonName : null) ||
     (gbif?.family && gbif.family !== "Unknown" ? gbif.family : scientificName);
 
   const externalEvidence = {
@@ -449,6 +482,7 @@ const fetchKnowledge = async (species, language) => {
     family: gbif?.family || "Unknown",
     genus: gbif?.genus || "Unknown",
     imageUrl: wiki?.originalimage?.source || wiki?.thumbnail?.source || null,
+    habitatMapPreviewUrl: gbifHabitat?.mapPreviewUrl || null,
     sectionLinks: buildSectionLinks(wiki?.content_urls?.desktop?.page || null, scientificName, language, {
       history: eolEvidence?.sourceUrl || null,
       habitat: gbifHabitat?.sourceUrl || null,
