@@ -15,7 +15,7 @@ import { StatusBar } from "expo-status-bar";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import NetInfo from "@react-native-community/netinfo";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
 import { runPlantPipeline } from "./src/services/pipeline";
 import { readCachedResult, saveCachedResult } from "./src/storage/cache";
@@ -334,9 +334,10 @@ export default function App() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar style="dark" />
-      <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+    <SafeAreaProvider>
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar style="dark" />
+        <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
         <View style={styles.hero}>
           <View style={styles.heroTopRow}>
             <View style={styles.heroBadge}>
@@ -493,8 +494,9 @@ export default function App() {
             ))
           )}
         </View>
-      </ScrollView>
-    </SafeAreaView>
+        </ScrollView>
+      </SafeAreaView>
+    </SafeAreaProvider>
   );
 }
 
