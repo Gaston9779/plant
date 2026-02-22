@@ -24,9 +24,9 @@ import { appendHistory, loadHistory, removeHistoryEntry } from "./src/storage/hi
 import { HistoryEntry, LanguageCode, PlantResult } from "./src/types";
 import { theme } from "./src/theme";
 
-const BUILD_MARKER = "build-2026-02-22-wiki-image-lottie-loader";
+const BUILD_MARKER = "build-2026-02-22-common-name-map-cache-v2";
 const HABITAT_BASEMAP_URL =
-  "https://upload.wikimedia.org/wikipedia/commons/thumb/8/80/World_map_-_low_resolution.svg/1024px-World_map_-_low_resolution.svg.png";
+  "https://basemaps.cartocdn.com/light_all/0/0/0.png";
 
 const copy: Record<
   LanguageCode,
@@ -862,7 +862,7 @@ const styles = StyleSheet.create({
     height: 120,
     borderRadius: theme.radius.sm,
     backgroundColor: "#152022",
-    resizeMode: "contain"
+    resizeMode: "cover"
   },
   mapLayerWrap: {
     width: "100%",
@@ -879,7 +879,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: "100%",
     height: "100%",
-    resizeMode: "contain"
+    resizeMode: "cover"
   },
   historySectionWrap: {
     marginTop: 2,

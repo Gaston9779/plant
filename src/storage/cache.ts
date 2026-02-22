@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { PlantResult } from "../types";
 import { hashString } from "../utils/hash";
 
-const CACHE_KEY = "plant_result_cache_v1";
+const CACHE_KEY = "plant_result_cache_v2";
 
 type CacheStore = Record<string, PlantResult>;
 
