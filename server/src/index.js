@@ -15,10 +15,15 @@ const upload = multer({
 });
 
 const PORT = Number(process.env.PORT || 8080);
-const PLANTNET_API_KEY = process.env.PLANTNET_API_KEY;
-const HF_TOKEN = process.env.HUGGINGFACE_TOKEN;
-const HF_DISEASE_MODEL = process.env.HF_DISEASE_MODEL;
-const HF_NARRATIVE_MODEL = process.env.HF_NARRATIVE_MODEL || process.env.HF_HISTORY_MODEL;
+const PLANTNET_API_KEY =
+  process.env.PLANTNET_API_KEY || process.env.EXPO_PUBLIC_PLANTNET_API_KEY;
+const HF_TOKEN = process.env.HUGGINGFACE_TOKEN || process.env.EXPO_PUBLIC_HUGGINGFACE_TOKEN;
+const HF_DISEASE_MODEL = process.env.HF_DISEASE_MODEL || process.env.EXPO_PUBLIC_HF_DISEASE_MODEL;
+const HF_NARRATIVE_MODEL =
+  process.env.HF_NARRATIVE_MODEL ||
+  process.env.HF_HISTORY_MODEL ||
+  process.env.EXPO_PUBLIC_HF_NARRATIVE_MODEL ||
+  process.env.EXPO_PUBLIC_HF_HISTORY_MODEL;
 const HF_ROUTER = "https://router.huggingface.co";
 const LANGUAGE_NAME = {
   it: "Italian",
