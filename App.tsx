@@ -1,8 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Animated,
-  Easing,
   Image,
   Linking,
   Platform,
@@ -12,7 +10,6 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  Vibration,
   View
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
@@ -30,22 +27,6 @@ import { theme } from "./src/theme";
 const BUILD_MARKER = "build-2026-02-22-common-name-map-cache-v2";
 const HABITAT_BASEMAP_URL =
   "https://basemaps.cartocdn.com/light_all/0/0/0.png";
-const INTRO_DURATION_MS = 1700;
-const LEAF_EMOJIS = ["🍃", "🍂", "🌿"];
-const LEAF_BURST_MS = 2300;
-
-type LeafParticle = {
-  id: string;
-  x: number;
-  size: number;
-  symbol: string;
-  driftA: number;
-  driftB: number;
-  driftC: number;
-  fallDistance: number;
-  progress: Animated.Value;
-  rotate: Animated.Value;
-};
 
 const copy: Record<
   LanguageCode,
@@ -72,6 +53,7 @@ const copy: Record<
     genericError: string;
     language: string;
     description: string;
+    botanicalProfile: string;
     historySection: string;
     habitat: string;
     toxicity: string;
@@ -102,6 +84,7 @@ const copy: Record<
     genericError: "Analisi non riuscita.",
     language: "Lingua",
     description: "Descrizione",
+    botanicalProfile: "Profilo botanico",
     historySection: "Storia",
     habitat: "Habitat",
     toxicity: "Tossicità",
@@ -131,6 +114,7 @@ const copy: Record<
     genericError: "Analysis failed.",
     language: "Language",
     description: "Description",
+    botanicalProfile: "Botanical profile",
     historySection: "History",
     habitat: "Habitat",
     toxicity: "Toxicity",
@@ -160,6 +144,7 @@ const copy: Record<
     genericError: "Fallo del analisis.",
     language: "Idioma",
     description: "Descripcion",
+    botanicalProfile: "Perfil botanico",
     historySection: "Historia",
     habitat: "Habitat",
     toxicity: "Toxicidad",
@@ -236,22 +221,7 @@ export default function App() {
   const [historyFilter, setHistoryFilter] = useState("");
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [lastAnalyzedUri, setLastAnalyzedUri] = useState<string | null>(null);
-  const [showIntro, setShowIntro] = useState(true);
-  const [introPercent, setIntroPercent] = useState(0);
-  const [leafParticles, setLeafParticles] = useState<LeafParticle[]>([]);
   const [curiosityBySpecies, setCuriosityBySpecies] = useState<Record<string, string>>({});
-  const [motionSupported, setMotionSupported] = useState(false);
-  const [motionNeedsTap, setMotionNeedsTap] = useState(false);
-  const introProgress = useMemo(() => new Animated.Value(0), []);
-  const leafSeq = useRef(0);
-  const lastLeafBurstAtRef = useRef(0);
-  const lastVibrationAtRef = useRef(0);
-  const motionSubscriptionRef = useRef<{ remove: () => void } | null>(null);
-  const motionWebCleanupRef = useRef<(() => void) | null>(null);
-  const lastGravitySampleRef = useRef<{ x: number; y: number; z: number } | null>(null);
-  const motionArmedAtRef = useRef(0);
-  const leafBurstActiveRef = useRef(false);
-  const nextShakeAllowedAtRef = useRef(0);
 
   const t = copy[language];
   const hfToken = process.env.EXPO_PUBLIC_HUGGINGFACE_TOKEN;
@@ -273,195 +243,6 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    const listenerId = introProgress.addListener(({ value }) => {
-      setIntroPercent(Math.min(100, Math.round(value * 100)));
-    });
-
-    Animated.timing(introProgress, {
-      toValue: 1,
-      duration: INTRO_DURATION_MS,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false
-    }).start(() => {
-      setTimeout(() => setShowIntro(false), 180);
-    });
-
-    return () => {
-      introProgress.removeListener(listenerId);
-    };
-  }, [introProgress]);
-
-  const spawnLeafBurst = (count: number): void => {
-    const now = Date.now();
-    if (leafBurstActiveRef.current) return;
-    if (now < nextShakeAllowedAtRef.current) return;
-    leafBurstActiveRef.current = true;
-    nextShakeAllowedAtRef.current = now + LEAF_BURST_MS;
-    lastLeafBurstAtRef.current = now;
-
-    const nextLeaves: LeafParticle[] = Array.from({ length: count }).map((_, idx) => {
-      leafSeq.current += 1;
-      return {
-        id: `leaf-${now}-${leafSeq.current}-${idx}`,
-        x: 8 + Math.random() * 84,
-        size: 18 + Math.round(Math.random() * 12),
-        symbol: LEAF_EMOJIS[Math.floor(Math.random() * LEAF_EMOJIS.length)],
-        driftA: -18 + Math.random() * 36,
-        driftB: -28 + Math.random() * 56,
-        driftC: -22 + Math.random() * 44,
-        fallDistance: 620 + Math.round(Math.random() * 320),
-        progress: new Animated.Value(0),
-        rotate: new Animated.Value(0)
-      };
-    });
-
-    setLeafParticles((prev) => [...prev, ...nextLeaves]);
-
-    nextLeaves.forEach((leaf) => {
-      const duration = 1500 + Math.round(Math.random() * 650);
-      Animated.parallel([
-        Animated.timing(leaf.progress, {
-          toValue: 1,
-          duration,
-          easing: Easing.in(Easing.quad),
-          useNativeDriver: true
-        }),
-        Animated.timing(leaf.rotate, {
-          toValue: 1,
-          duration,
-          easing: Easing.linear,
-          useNativeDriver: true
-        })
-      ]).start();
-
-      setTimeout(() => {
-        setLeafParticles((prev) => prev.filter((item) => item.id !== leaf.id));
-      }, duration + 220);
-    });
-
-    setTimeout(() => {
-      leafBurstActiveRef.current = false;
-      setLeafParticles([]);
-    }, LEAF_BURST_MS + 60);
-  };
-
-  const onMotionSample = (accSource: any, rotationSource: any): void => {
-    if (Date.now() < motionArmedAtRef.current) return;
-
-    const acc = accSource || {};
-    let movement = 0;
-    if (
-      typeof acc.x === "number" &&
-      typeof acc.y === "number" &&
-      typeof acc.z === "number"
-    ) {
-      // Preferred signal: acceleration without gravity.
-      movement = Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z);
-    } else if (acc && typeof acc === "object") {
-      // Fallback signal: high-pass via delta on gravity-included acceleration.
-      const gx = Number(acc.x || 0);
-      const gy = Number(acc.y || 0);
-      const gz = Number(acc.z || 0);
-      const prev = lastGravitySampleRef.current;
-      if (prev) {
-        movement = Math.abs(gx - prev.x) + Math.abs(gy - prev.y) + Math.abs(gz - prev.z);
-      }
-      lastGravitySampleRef.current = { x: gx, y: gy, z: gz };
-    }
-
-    const rot = rotationSource || {};
-    const rotation = Math.abs(rot.alpha || 0) + Math.abs(rot.beta || 0) + Math.abs(rot.gamma || 0);
-    if (movement > 1.4 || rotation > 2.9) {
-      const now = Date.now();
-      if (now - lastVibrationAtRef.current > 600) {
-        lastVibrationAtRef.current = now;
-        Vibration.vibrate(18);
-      }
-      spawnLeafBurst(8);
-    }
-  };
-
-  const activateMotionTrigger = async (): Promise<void> => {
-    try {
-      if (Platform.OS === "web") {
-        const win = window as any;
-        const dm = win?.DeviceMotionEvent;
-        if (!win?.addEventListener || !dm) {
-          setMotionSupported(false);
-          setMotionNeedsTap(false);
-          return;
-        }
-
-        if (typeof dm.requestPermission === "function") {
-          const permission = await dm.requestPermission();
-          if (permission !== "granted") {
-            setMotionSupported(false);
-            setMotionNeedsTap(true);
-            return;
-          }
-        }
-
-        motionWebCleanupRef.current?.();
-        lastGravitySampleRef.current = null;
-        motionArmedAtRef.current = Date.now() + 900;
-        const handler = (event: any) => {
-          onMotionSample(event?.acceleration || event?.accelerationIncludingGravity, event?.rotationRate);
-        };
-        win.addEventListener("devicemotion", handler);
-        motionWebCleanupRef.current = () => win.removeEventListener("devicemotion", handler);
-        setMotionSupported(true);
-        setMotionNeedsTap(false);
-        return;
-      }
-
-      const sensors = require("expo-sensors");
-      const DeviceMotion = sensors?.DeviceMotion;
-      if (!DeviceMotion?.addListener) {
-        setMotionSupported(false);
-        setMotionNeedsTap(false);
-        return;
-      }
-
-      if (typeof DeviceMotion.requestPermissionsAsync === "function") {
-        const permission = await DeviceMotion.requestPermissionsAsync();
-        if (permission?.status !== "granted") {
-          setMotionSupported(false);
-          setMotionNeedsTap(true);
-          return;
-        }
-      }
-
-      DeviceMotion.setUpdateInterval?.(220);
-      motionSubscriptionRef.current?.remove?.();
-      lastGravitySampleRef.current = null;
-      motionArmedAtRef.current = Date.now() + 900;
-      motionSubscriptionRef.current = DeviceMotion.addListener((event: any) => {
-        onMotionSample(event?.acceleration || event?.accelerationIncludingGravity, event?.rotationRate);
-      });
-
-      setMotionSupported(true);
-      setMotionNeedsTap(false);
-    } catch {
-      setMotionSupported(false);
-      setMotionNeedsTap(false);
-    }
-  };
-
-  useEffect(() => {
-    if (Platform.OS === "web") {
-      setMotionNeedsTap(true);
-    } else {
-      void activateMotionTrigger();
-    }
-    return () => {
-      motionSubscriptionRef.current?.remove?.();
-      motionSubscriptionRef.current = null;
-      motionWebCleanupRef.current?.();
-      motionWebCleanupRef.current = null;
-    };
   }, []);
 
   useEffect(() => {
@@ -614,49 +395,21 @@ export default function App() {
 
   const WebLottie = Platform.OS === "web" ? (require("lottie-react").default as any) : null;
   const sectionLinks = currentResult?.knowledge.sectionLinks;
-  const introTitleOpacity = introProgress.interpolate({
-    inputRange: [0, 0.2, 1],
-    outputRange: [0, 0.95, 1]
-  });
-  const introTitleTranslateY = introProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [16, 0]
-  });
-  const introProgressWidth = introProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["0%", "100%"]
-  });
-  const introOrbScale = introProgress.interpolate({
-    inputRange: [0, 0.5, 1],
-    outputRange: [0.8, 1.08, 1]
-  });
+  const botanicalProfileBody = useMemo(() => {
+    if (!currentResult) return "";
+    if (language === "it") {
+      return `Famiglia: ${currentResult.knowledge.family}. Genere: ${currentResult.knowledge.genus}. ${t.provider}: ${currentResult.classification.provider}. ${t.confidence}: ${getConfidenceLabel(currentResult.classification.confidence)}.`;
+    }
+    if (language === "es") {
+      return `Familia: ${currentResult.knowledge.family}. Genero: ${currentResult.knowledge.genus}. ${t.provider}: ${currentResult.classification.provider}. ${t.confidence}: ${getConfidenceLabel(currentResult.classification.confidence)}.`;
+    }
+    return `Family: ${currentResult.knowledge.family}. Genus: ${currentResult.knowledge.genus}. ${t.provider}: ${currentResult.classification.provider}. ${t.confidence}: ${getConfidenceLabel(currentResult.classification.confidence)}.`;
+  }, [currentResult, language, t.provider, t.confidence]);
 
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.safeArea}>
         <StatusBar style="dark" />
-        {showIntro && (
-          <View style={styles.introOverlay}>
-            <View style={styles.introGlowBack} />
-            <Animated.View style={[styles.introOrb, { transform: [{ scale: introOrbScale }] }]} />
-            <Text style={styles.introPlant}>🌿</Text>
-            <Animated.Text
-              style={[
-                styles.introTitle,
-                {
-                  opacity: introTitleOpacity,
-                  transform: [{ translateY: introTitleTranslateY }]
-                }
-              ]}
-            >
-              Plant Discovery
-            </Animated.Text>
-            <Text style={styles.introPercent}>{`${introPercent}%`}</Text>
-            <View style={styles.introBarTrack}>
-              <Animated.View style={[styles.introBarFill, { width: introProgressWidth }]} />
-            </View>
-          </View>
-        )}
         {isLoading && (
           <View pointerEvents="none" style={styles.loaderOverlay}>
             <View style={styles.loaderBackdrop} />
@@ -674,52 +427,6 @@ export default function App() {
             )}
           </View>
         )}
-        <View pointerEvents="none" style={styles.leafOverlay}>
-          {leafParticles.map((leaf) => (
-            <Animated.Text
-              key={leaf.id}
-              style={[
-                styles.leafParticle,
-                {
-                  left: `${leaf.x}%`,
-                  fontSize: leaf.size,
-                  transform: [
-                    {
-                      translateY: leaf.progress.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [-40, leaf.fallDistance]
-                      })
-                    },
-                    {
-                      translateX: leaf.progress.interpolate({
-                        inputRange: [0, 0.25, 0.5, 0.75, 1],
-                        outputRange: [0, leaf.driftA, leaf.driftB, leaf.driftC, leaf.driftA]
-                      })
-                    },
-                    {
-                      rotate: leaf.rotate.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: ["0deg", "540deg"]
-                      })
-                    },
-                    {
-                      scale: leaf.progress.interpolate({
-                        inputRange: [0, 0.5, 1],
-                        outputRange: [0.95, 1.08, 0.98]
-                      })
-                    }
-                  ],
-                  opacity: leaf.progress.interpolate({
-                    inputRange: [0, 0.08, 0.92, 1],
-                    outputRange: [0, 1, 1, 0]
-                  })
-                }
-              ]}
-            >
-              {leaf.symbol}
-            </Animated.Text>
-          ))}
-        </View>
         <ScrollView
           style={styles.screen}
           contentContainerStyle={styles.content}
@@ -784,19 +491,6 @@ export default function App() {
               <Text style={styles.diagnosticsLine}>{`HF history model: ${hfHistoryModel || "mancante (opzionale, ma consigliato)"}`}</Text>
               <Text style={styles.diagnosticsLine}>{`HF narrative model: ${hfNarrativeModel || "mancante (opzionale)"}`}</Text>
               <Text style={styles.diagnosticsLine}>{`PlantNet key: ${plantNetKey ? "presente" : "mancante (opzionale se usi HF bio)"}`}</Text>
-              <Text style={styles.diagnosticsLine}>{`Motion trigger: ${motionSupported ? "attivo" : "non disponibile"}`}</Text>
-              {!motionSupported && (
-                <Pressable
-                  style={styles.motionButton}
-                  onPress={() => {
-                    void activateMotionTrigger();
-                  }}
-                >
-                  <Text style={styles.motionButtonText}>
-                    {motionNeedsTap ? "Abilita movimento" : "Riprova sensore movimento"}
-                  </Text>
-                </Pressable>
-              )}
             </View>
           )}
         </View>
@@ -811,6 +505,14 @@ export default function App() {
               <Text style={styles.plantSubheading}>
                 {currentResult.knowledge.commonName || currentResult.knowledge.family}
               </Text>
+              <View style={styles.quickFactsRow}>
+                <View style={styles.quickFactPill}>
+                  <Text style={styles.quickFactText}>{`Family · ${currentResult.knowledge.family}`}</Text>
+                </View>
+                <View style={styles.quickFactPill}>
+                  <Text style={styles.quickFactText}>{`Genus · ${currentResult.knowledge.genus}`}</Text>
+                </View>
+              </View>
 
               <View style={styles.confidencePill}>
                 <Text style={styles.confidenceText}>
@@ -837,7 +539,7 @@ export default function App() {
 
               <Text style={styles.altTitle}>{t.dataSources}</Text>
               {(currentResult.knowledge.sourceLinks ?? []).map((link) => (
-                <Pressable key={link} onPress={() => void openSourceLink(link)}>
+                <Pressable key={link} style={styles.sourceLinkChip} onPress={() => void openSourceLink(link)}>
                   <Text style={styles.sourceLink}>{link}</Text>
                 </Pressable>
               ))}
@@ -852,6 +554,11 @@ export default function App() {
               </Pressable>
             </View>
 
+            <SectionCard
+              icon="🧬"
+              title={t.botanicalProfile}
+              body={botanicalProfileBody}
+            />
             <SectionCard
               icon="🌿"
               title={t.description}
@@ -959,67 +666,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: theme.colors.background
   },
-  introOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 40,
-    backgroundColor: "#eaf7ea",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 14
-  },
-  introGlowBack: {
-    position: "absolute",
-    width: 320,
-    height: 320,
-    borderRadius: 160,
-    backgroundColor: "rgba(116, 193, 104, 0.15)"
-  },
-  introOrb: {
-    width: 92,
-    height: 92,
-    borderRadius: 46,
-    backgroundColor: "#7bc96f",
-    borderWidth: 7,
-    borderColor: "rgba(29, 84, 36, 0.18)"
-  },
-  introPlant: {
-    position: "absolute",
-    top: "42%",
-    fontSize: 38
-  },
-  introTitle: {
-    marginTop: 6,
-    fontSize: 34,
-    color: "#1d5424",
-    fontWeight: "700",
-    fontStyle: "italic",
-    letterSpacing: 0.6
-  },
-  introPercent: {
-    color: "#356a3f",
-    fontSize: 18,
-    fontWeight: "700"
-  },
-  introBarTrack: {
-    width: 220,
-    height: 8,
-    borderRadius: 99,
-    backgroundColor: "rgba(40, 112, 49, 0.15)",
-    overflow: "hidden"
-  },
-  introBarFill: {
-    height: "100%",
-    backgroundColor: "#3f984d",
-    borderRadius: 99
-  },
-  leafOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 30
-  },
-  leafParticle: {
-    position: "absolute",
-    top: -18
-  },
   loaderOverlay: {
     ...StyleSheet.absoluteFillObject,
     alignItems: "center",
@@ -1046,17 +692,22 @@ const styles = StyleSheet.create({
     flex: 1
   },
   content: {
-    padding: 16,
-    paddingBottom: 38,
-    gap: 14
+    padding: 18,
+    paddingBottom: 46,
+    gap: 16
   },
   hero: {
     backgroundColor: theme.colors.backgroundAccent,
     borderRadius: theme.radius.lg,
-    padding: 18,
+    padding: 20,
     borderWidth: 1,
     borderColor: theme.colors.cardBorder,
-    gap: 10
+    gap: 10,
+    shadowColor: "#1f2b1d",
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3
   },
   heroTopRow: {
     flexDirection: "row",
@@ -1119,7 +770,7 @@ const styles = StyleSheet.create({
   subtitle: {
     color: theme.colors.textMuted,
     fontSize: 15,
-    lineHeight: 22
+    lineHeight: 23
   },
   actionsRow: {
     flexDirection: "row",
@@ -1204,21 +855,6 @@ const styles = StyleSheet.create({
     color: theme.colors.textMuted,
     fontSize: 12
   },
-  motionButton: {
-    marginTop: 8,
-    alignSelf: "flex-start",
-    backgroundColor: theme.colors.background,
-    borderWidth: 1,
-    borderColor: theme.colors.cardBorder,
-    borderRadius: theme.radius.sm,
-    paddingHorizontal: 10,
-    paddingVertical: 7
-  },
-  motionButtonText: {
-    color: theme.colors.heading,
-    fontSize: 12,
-    fontWeight: "700"
-  },
   resultWrap: {
     gap: 10
   },
@@ -1228,7 +864,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.cardBorder,
     padding: 12,
-    gap: 8
+    gap: 8,
+    shadowColor: "#1f2b1d",
+    shadowOpacity: 0.07,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 2
   },
   previewImage: {
     width: "100%",
@@ -1245,6 +886,24 @@ const styles = StyleSheet.create({
     color: theme.colors.textMuted,
     fontSize: 15,
     fontStyle: "italic"
+  },
+  quickFactsRow: {
+    flexDirection: "row",
+    gap: 8,
+    flexWrap: "wrap"
+  },
+  quickFactPill: {
+    backgroundColor: theme.colors.background,
+    borderWidth: 1,
+    borderColor: theme.colors.cardBorder,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5
+  },
+  quickFactText: {
+    color: theme.colors.textPrimary,
+    fontSize: 12,
+    fontWeight: "600"
   },
   confidencePill: {
     alignSelf: "flex-start",
@@ -1276,6 +935,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textDecorationLine: "underline"
   },
+  sourceLinkChip: {
+    marginTop: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 7,
+    borderRadius: theme.radius.sm,
+    borderWidth: 1,
+    borderColor: theme.colors.cardBorder,
+    backgroundColor: theme.colors.background
+  },
   shareAction: {
     marginTop: 8,
     backgroundColor: theme.colors.cta,
@@ -1293,7 +961,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.cardBorder,
     padding: 12,
-    gap: 6
+    gap: 6,
+    shadowColor: "#1f2b1d",
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2
   },
   sectionCardLink: {
     borderColor: theme.colors.cta

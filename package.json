@@ -19,7 +19,6 @@
     "expo-file-system": "~18.1.11",
     "expo-image-picker": "~17.0.10",
     "expo-image-manipulator": "~13.1.7",
-    "expo-sensors": "~14.0.1",
     "expo-status-bar": "~3.0.9",
     "lottie-react": "^2.4.1",
     "react": "19.1.0",

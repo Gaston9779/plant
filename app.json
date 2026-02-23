@@ -12,8 +12,7 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Use camera to identify plants.",
-        "NSPhotoLibraryUsageDescription": "Upload plant photos for identification.",
-        "NSMotionUsageDescription": "Use motion sensors to trigger falling leaves animation."
+        "NSPhotoLibraryUsageDescription": "Upload plant photos for identification."
       }
     },
     "android": {
