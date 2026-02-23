@@ -738,22 +738,27 @@ const generateNarrative = async (knowledge, language) => {
 
   const required = ["description", "history", "habitat", "toxicity", "care", "funFacts"];
   if (!required.every((key) => typeof parsed[key] === "string")) return fallbackNarrative(knowledge, safeLanguage);
+  const trimOrEmpty = (value) => String(value || "").trim();
   parsed.history =
-    knowledge?.externalEvidence?.history && typeof knowledge.externalEvidence.history === "string"
+    trimOrEmpty(parsed.history) ||
+    (knowledge?.externalEvidence?.history && typeof knowledge.externalEvidence.history === "string"
       ? knowledge.externalEvidence.history
-      : getUnavailableByLanguage(safeLanguage, safeLanguage === "it" ? "storia" : "history");
+      : getUnavailableByLanguage(safeLanguage, safeLanguage === "it" ? "storia" : "history"));
   parsed.habitat =
-    knowledge?.externalEvidence?.habitat && typeof knowledge.externalEvidence.habitat === "string"
+    trimOrEmpty(parsed.habitat) ||
+    (knowledge?.externalEvidence?.habitat && typeof knowledge.externalEvidence.habitat === "string"
       ? knowledge.externalEvidence.habitat
-      : getUnavailableByLanguage(safeLanguage, "habitat");
+      : getUnavailableByLanguage(safeLanguage, "habitat"));
   parsed.funFacts =
-    knowledge?.externalEvidence?.funFacts && typeof knowledge.externalEvidence.funFacts === "string"
+    trimOrEmpty(parsed.funFacts) ||
+    (knowledge?.externalEvidence?.funFacts && typeof knowledge.externalEvidence.funFacts === "string"
       ? knowledge.externalEvidence.funFacts
-      : getUnavailableByLanguage(safeLanguage, safeLanguage === "it" ? "curiosità" : "fun facts");
+      : getUnavailableByLanguage(safeLanguage, safeLanguage === "it" ? "curiosità" : "fun facts"));
   parsed.toxicity =
-    knowledge?.externalEvidence?.toxicity && typeof knowledge.externalEvidence.toxicity === "string"
+    trimOrEmpty(parsed.toxicity) ||
+    (knowledge?.externalEvidence?.toxicity && typeof knowledge.externalEvidence.toxicity === "string"
       ? knowledge.externalEvidence.toxicity
-      : getUnavailableByLanguage(safeLanguage, safeLanguage === "it" ? "tossicità" : "toxicity");
+      : getUnavailableByLanguage(safeLanguage, safeLanguage === "it" ? "tossicità" : "toxicity"));
   return parsed;
 };
 

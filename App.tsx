@@ -219,6 +219,7 @@ export default function App() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historyFilter, setHistoryFilter] = useState("");
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [lastAnalyzedUri, setLastAnalyzedUri] = useState<string | null>(null);
   const [showIntro, setShowIntro] = useState(true);
   const [introPercent, setIntroPercent] = useState(0);
   const introProgress = useMemo(() => new Animated.Value(0), []);
@@ -264,6 +265,13 @@ export default function App() {
     };
   }, [introProgress]);
 
+  useEffect(() => {
+    if (!lastAnalyzedUri || !currentResult) return;
+    if (isLoading) return;
+    if (currentResult.language === language) return;
+    void identifyImage(lastAnalyzedUri);
+  }, [language, lastAnalyzedUri, currentResult, isLoading]);
+
   const filteredHistory = useMemo(() => {
     if (!historyFilter.trim()) return history;
     const query = historyFilter.trim().toLowerCase();
@@ -278,6 +286,7 @@ export default function App() {
     try {
       const cached = await readCachedResult(uri, language);
       if (cached) {
+        setLastAnalyzedUri(uri);
         setCurrentResult(cached);
         setHistory(await appendHistory(cached));
         setIsLoading(false);
@@ -285,6 +294,7 @@ export default function App() {
       }
 
       const result = await runPlantPipeline(uri, isOnline, language);
+      setLastAnalyzedUri(uri);
       setCurrentResult(result);
       await saveCachedResult(uri, language, result);
       setHistory(await appendHistory(result));
@@ -365,6 +375,10 @@ export default function App() {
     setHistory(await removeHistoryEntry(id));
   };
 
+  const handleLanguageChange = (code: LanguageCode): void => {
+    setLanguage(code);
+  };
+
   const WebLottie = Platform.OS === "web" ? (require("lottie-react").default as any) : null;
   const sectionLinks = currentResult?.knowledge.sectionLinks;
   const introTitleOpacity = introProgress.interpolate({
@@ -392,6 +406,7 @@ export default function App() {
           <View style={styles.introOverlay}>
             <View style={styles.introGlowBack} />
             <Animated.View style={[styles.introOrb, { transform: [{ scale: introOrbScale }] }]} />
+            <Text style={styles.introPlant}>🌿</Text>
             <Animated.Text
               style={[
                 styles.introTitle,
@@ -439,7 +454,7 @@ export default function App() {
                   <Pressable
                     key={code}
                     style={[styles.languageButton, language === code && styles.languageButtonActive]}
-                    onPress={() => setLanguage(code)}
+                    onPress={() => handleLanguageChange(code)}
                   >
                     <Text
                       style={[styles.languageButtonText, language === code && styles.languageButtonTextActive]}
@@ -665,6 +680,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#7bc96f",
     borderWidth: 7,
     borderColor: "rgba(29, 84, 36, 0.18)"
+  },
+  introPlant: {
+    position: "absolute",
+    top: "42%",
+    fontSize: 38
   },
   introTitle: {
     marginTop: 6,
