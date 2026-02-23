@@ -68,6 +68,20 @@ const EOL_LANGUAGE_FALLBACKS = {
   en: ["en"],
   es: ["es", "en"]
 };
+const WIKI_SECTION_KEYWORDS = {
+  it: {
+    history: ["storia", "etimologia", "origine"],
+    funFacts: ["curiosita", "usi", "cultura", "tradizione", "folklore"]
+  },
+  en: {
+    history: ["history", "etymology", "origin"],
+    funFacts: ["trivia", "uses", "culture", "tradition", "folklore"]
+  },
+  es: {
+    history: ["historia", "etimologia", "origen"],
+    funFacts: ["curiosidades", "usos", "cultura", "tradicion", "folclore"]
+  }
+};
 
 const parseJsonSafe = (value, fallback = null) => {
   try {
@@ -298,6 +312,13 @@ const cleanWikiTitle = (value) =>
     .replace(/\s+/g, " ")
     .trim();
 
+const normalizeForMatch = (value) =>
+  String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+
 const isLikelyFamilyOnly = (value) => /aceae$/i.test(String(value || "").trim());
 
 const buildAspcaSearchUrl = (commonName, scientificName) => {
@@ -514,6 +535,67 @@ const fetchEolEvidence = async (scientificName, language) => {
   };
 };
 
+const buildWikiPageUrl = (title, language) =>
+  `https://${language}.wikipedia.org/wiki/${encodeURIComponent(String(title || "").replace(/\s+/g, "_"))}`;
+
+const buildWikiSectionUrl = (pageUrl, sectionTitle) => {
+  if (!pageUrl || !sectionTitle) return pageUrl || null;
+  return `${pageUrl}#${encodeURIComponent(String(sectionTitle).replace(/\s+/g, "_"))}`;
+};
+
+const pickWikiSection = (sections, keywords) => {
+  if (!Array.isArray(sections) || !keywords?.length) return null;
+  for (const section of sections) {
+    const line = normalizeForMatch(stripHtml(section?.line || ""));
+    if (!line) continue;
+    if (keywords.some((keyword) => line.includes(keyword))) return section;
+  }
+  return null;
+};
+
+const fetchWikiSectionText = async (title, language, sectionIndex) => {
+  if (!title || !sectionIndex) return null;
+  const payload = await fetchJsonOrNull(
+    `https://${language}.wikipedia.org/w/api.php?action=parse&page=${encodeURIComponent(
+      title
+    )}&prop=text&section=${encodeURIComponent(sectionIndex)}&format=json&origin=*`
+  );
+  const html = payload?.parse?.text?.["*"];
+  if (!html) return null;
+  const text = truncateText(stripHtml(html), 280);
+  return text || null;
+};
+
+const fetchWikiSectionEvidence = async (wikiTitle, language, wikiPageUrl) => {
+  if (!wikiTitle) return null;
+  const safeLanguage = ["it", "en", "es"].includes(language) ? language : "en";
+  const keywords = WIKI_SECTION_KEYWORDS[safeLanguage] || WIKI_SECTION_KEYWORDS.en;
+  const sectionPayload = await fetchJsonOrNull(
+    `https://${safeLanguage}.wikipedia.org/w/api.php?action=parse&page=${encodeURIComponent(
+      wikiTitle
+    )}&prop=sections&format=json&origin=*`
+  );
+  const sections = sectionPayload?.parse?.sections || [];
+  if (!Array.isArray(sections) || !sections.length) return null;
+
+  const historySection = pickWikiSection(sections, keywords.history);
+  const funFactsSection = pickWikiSection(sections, keywords.funFacts);
+  const pageUrl = wikiPageUrl || buildWikiPageUrl(wikiTitle, safeLanguage);
+
+  const [historyText, funFactsText] = await Promise.all([
+    historySection ? fetchWikiSectionText(wikiTitle, safeLanguage, historySection.index) : null,
+    funFactsSection ? fetchWikiSectionText(wikiTitle, safeLanguage, funFactsSection.index) : null
+  ]);
+
+  if (!historyText && !funFactsText) return null;
+  return {
+    historyText: historyText || null,
+    funFactsText: funFactsText || null,
+    historyUrl: historySection ? buildWikiSectionUrl(pageUrl, historySection.line) : pageUrl,
+    funFactsUrl: funFactsSection ? buildWikiSectionUrl(pageUrl, funFactsSection.line) : pageUrl
+  };
+};
+
 const fetchKnowledge = async (species, language) => {
   const wikiPrimary = await fetchWikiSummary(species, language);
   let wiki = wikiPrimary;
@@ -559,6 +641,11 @@ const fetchKnowledge = async (species, language) => {
   const gbifCommonName = await fetchGbifCommonName(gbif?.usageKey, language);
   const gbifHabitat = await fetchGbifHabitatEvidence(gbif?.usageKey, scientificName, language);
   const eolEvidence = await fetchEolEvidence(scientificName, language);
+  const wikiSectionEvidence = await fetchWikiSectionEvidence(
+    wiki?.title || scientificName,
+    language,
+    wiki?.content_urls?.desktop?.page || null
+  );
   const wikiLooksScientific = wikiTitle && isLikelyScientificName(wikiTitle, scientificName);
   const wikidataLooksScientific =
     wikidataLabel && isLikelyScientificName(wikidataLabel, scientificName);
@@ -574,8 +661,8 @@ const fetchKnowledge = async (species, language) => {
 
   const externalEvidence = {
     habitat: gbifHabitat?.text || null,
-    history: eolEvidence?.historyText || null,
-    funFacts: eolEvidence?.funFactsText || null
+    history: eolEvidence?.historyText || wikiSectionEvidence?.historyText || null,
+    funFacts: eolEvidence?.funFactsText || wikiSectionEvidence?.funFactsText || null
   };
 
   return {
@@ -587,10 +674,18 @@ const fetchKnowledge = async (species, language) => {
     imageUrl: wiki?.originalimage?.source || wiki?.thumbnail?.source || null,
     habitatMapPreviewUrl: gbifHabitat?.mapPreviewUrl || null,
     sectionLinks: buildSectionLinks(wiki?.content_urls?.desktop?.page || null, scientificName, language, {
-      history: eolEvidence?.sourceUrl || eolEvidence?.searchUrl || `https://eol.org/search?q=${encodeURIComponent(scientificName)}`,
+      history:
+        eolEvidence?.sourceUrl ||
+        wikiSectionEvidence?.historyUrl ||
+        eolEvidence?.searchUrl ||
+        `https://eol.org/search?q=${encodeURIComponent(scientificName)}`,
       habitat: gbifHabitat?.sourceUrl || null,
       toxicity: buildAspcaSearchUrl(commonName, scientificName),
-      funFacts: eolEvidence?.sourceUrl || eolEvidence?.searchUrl || `https://eol.org/search?q=${encodeURIComponent(scientificName)}`
+      funFacts:
+        eolEvidence?.sourceUrl ||
+        wikiSectionEvidence?.funFactsUrl ||
+        eolEvidence?.searchUrl ||
+        `https://eol.org/search?q=${encodeURIComponent(scientificName)}`
     }),
     externalEvidence,
     publication: gbifDetails?.publishedIn || gbif?.scientificNameAuthorship || "Unknown",
@@ -601,6 +696,8 @@ const fetchKnowledge = async (species, language) => {
       wiki?.content_urls?.desktop?.page,
       gbifHabitat?.sourceUrl,
       eolEvidence?.sourceUrl,
+      wikiSectionEvidence?.historyUrl,
+      wikiSectionEvidence?.funFactsUrl,
       "https://api.gbif.org/v1/species/match"
     ].filter(Boolean)
   };
@@ -614,10 +711,6 @@ const fallbackNarrative = (knowledge, language) => {
   const unavailableHabitat = getUnavailableByLanguage(language, "habitat");
   const unavailableFunFacts = getUnavailableByLanguage(language, "curiosità");
   if (language === "it") {
-    const publication =
-      knowledge.publication && knowledge.publication !== "Unknown"
-        ? ` La denominazione botanica è collegata a: ${knowledge.publication}.`
-        : "";
     return {
       description: `${knowledge.commonName} (${knowledge.scientificName}) appartiene alla famiglia ${knowledge.family} e al genere ${knowledge.genus}.`,
       history: evidenceHistory || unavailableHistory,
@@ -629,10 +722,6 @@ const fallbackNarrative = (knowledge, language) => {
   }
 
   if (language === "es") {
-    const publication =
-      knowledge.publication && knowledge.publication !== "Unknown"
-        ? ` La denominacion botanica se asocia con: ${knowledge.publication}.`
-        : "";
     return {
       description: `${knowledge.commonName} (${knowledge.scientificName}) pertenece a la familia ${knowledge.family} y al genero ${knowledge.genus}.`,
       history: evidenceHistory || getUnavailableByLanguage(language, "historia"),
@@ -675,7 +764,7 @@ const generateNarrative = async (knowledge, language) => {
     "All output fields must be in the requested language only.",
     "If any source sentence is in another language, translate it fully.",
     "Use correct orthography: accents and apostrophes must be preserved when required by the language.",
-    "Use source grounding: keep description from Wikipedia summary, habitat from GBIF evidence, and history/funFacts from EOL evidence when provided.",
+    "Use source grounding: keep description from Wikipedia summary, habitat from GBIF evidence, and history/funFacts from EOL or Wikipedia section evidence when provided.",
     "If a source field is missing, write a concise 'data not available' sentence instead of inventing details.",
     "Do not include markdown or code fences.",
     `Keep scientific name unchanged: \"${knowledge.scientificName}\".`,
