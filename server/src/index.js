@@ -359,6 +359,64 @@ const looksUncertain = (text) =>
     String(text || "")
   );
 
+const looksMostlyEnglish = (text) => {
+  const sample = ` ${String(text || "").toLowerCase()} `;
+  if (!sample.trim()) return false;
+  const englishHits = [
+    " the ",
+    " and ",
+    " with ",
+    " from ",
+    " plant ",
+    " species ",
+    " native ",
+    " widely ",
+    " used ",
+    " known "
+  ].reduce((acc, token) => (sample.includes(token) ? acc + 1 : acc), 0);
+  const italianHits = [" il ", " la ", " le ", " di ", " con ", " nel ", " pianta ", " specie "]
+    .reduce((acc, token) => (sample.includes(token) ? acc + 1 : acc), 0);
+  return englishHits >= 2 && englishHits > italianHits;
+};
+
+const translateTextToLanguage = async (text, language) => {
+  const safeLanguage = ["it", "en", "es"].includes(language) ? language : "en";
+  const source = String(text || "").trim();
+  if (!source || safeLanguage === "en") return source;
+  if (!HF_TOKEN || !HF_NARRATIVE_MODEL) return source;
+
+  const prompt = [
+    `Translate the following text to ${LANGUAGE_NAME[safeLanguage]}.`,
+    "Preserve facts, keep it concise, neutral tone, no extra commentary.",
+    "Return only the translated text.",
+    source
+  ].join("\n");
+
+  try {
+    const response = await fetch(`${HF_ROUTER}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${HF_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: HF_NARRATIVE_MODEL,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.1,
+        max_tokens: 220
+      })
+    });
+    if (!response.ok) return source;
+    const payload = await response.json();
+    const translated = String(payload?.choices?.[0]?.message?.content || "")
+      .replace(/^["'`]|["'`]$/g, "")
+      .trim();
+    return translated || source;
+  } catch {
+    return source;
+  }
+};
+
 const keepMaxTwoSentences = (text) => {
   const parts = splitSentences(text);
   if (!parts.length) return "";
@@ -412,7 +470,11 @@ const generateCuriosityForSpecies = async (species, language = "en") => {
 
     const payload = await response.json();
     const raw = payload?.choices?.[0]?.message?.content;
-    const cleaned = keepMaxTwoSentences(extractCuriosityText(raw));
+    let cleaned = keepMaxTwoSentences(extractCuriosityText(raw));
+    if ((safeLanguage === "it" || safeLanguage === "es") && looksMostlyEnglish(cleaned)) {
+      cleaned = await translateTextToLanguage(cleaned, safeLanguage);
+      cleaned = keepMaxTwoSentences(cleaned);
+    }
     if (!cleaned || looksUncertain(cleaned)) {
       curiosityCache.set(cacheKey, CURIOSITY_FALLBACK);
       return CURIOSITY_FALLBACK;
@@ -852,6 +914,12 @@ const generateNarrative = async (knowledge, language) => {
     (knowledge?.externalEvidence?.toxicity && typeof knowledge.externalEvidence.toxicity === "string"
       ? knowledge.externalEvidence.toxicity
       : getUnavailableByLanguage(safeLanguage, safeLanguage === "it" ? "tossicità" : "toxicity"));
+  if ((safeLanguage === "it" || safeLanguage === "es") && looksMostlyEnglish(parsed.history)) {
+    parsed.history = await translateTextToLanguage(parsed.history, safeLanguage);
+  }
+  if ((safeLanguage === "it" || safeLanguage === "es") && looksMostlyEnglish(parsed.funFacts)) {
+    parsed.funFacts = await translateTextToLanguage(parsed.funFacts, safeLanguage);
+  }
   return parsed;
 };
 
