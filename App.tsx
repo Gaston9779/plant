@@ -37,7 +37,10 @@ type LeafParticle = {
   x: number;
   size: number;
   symbol: string;
-  drift: number;
+  driftA: number;
+  driftB: number;
+  driftC: number;
+  fallDistance: number;
   progress: Animated.Value;
   rotate: Animated.Value;
 };
@@ -292,7 +295,10 @@ export default function App() {
         x: 8 + Math.random() * 84,
         size: 18 + Math.round(Math.random() * 12),
         symbol: LEAF_EMOJIS[Math.floor(Math.random() * LEAF_EMOJIS.length)],
-        drift: -26 + Math.random() * 52,
+        driftA: -18 + Math.random() * 36,
+        driftB: -28 + Math.random() * 56,
+        driftC: -22 + Math.random() * 44,
+        fallDistance: 620 + Math.round(Math.random() * 320),
         progress: new Animated.Value(0),
         rotate: new Animated.Value(0)
       };
@@ -301,19 +307,19 @@ export default function App() {
     setLeafParticles((prev) => [...prev, ...nextLeaves]);
 
     nextLeaves.forEach((leaf) => {
-      const duration = 1600 + Math.round(Math.random() * 900);
+      const duration = 2200 + Math.round(Math.random() * 1400);
       Animated.parallel([
         Animated.timing(leaf.progress, {
           toValue: 1,
           duration,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: false
+          easing: Easing.in(Easing.quad),
+          useNativeDriver: true
         }),
         Animated.timing(leaf.rotate, {
           toValue: 1,
           duration,
           easing: Easing.linear,
-          useNativeDriver: false
+          useNativeDriver: true
         })
       ]).start();
 
@@ -334,12 +340,15 @@ export default function App() {
         const acc = event?.accelerationIncludingGravity || event?.acceleration;
         if (!acc) return;
         const magnitude = Math.abs(acc.x || 0) + Math.abs(acc.y || 0) + Math.abs(acc.z || 0);
-        if (magnitude > 2.1) {
+        const rot = event?.rotationRate || {};
+        const rotation =
+          Math.abs(rot.alpha || 0) + Math.abs(rot.beta || 0) + Math.abs(rot.gamma || 0);
+        if (magnitude > 1.9 || rotation > 2.4) {
           spawnLeafBurst(6);
         }
       });
     } catch {
-      // Device motion is optional; scroll trigger still works.
+      // Device motion is optional; leaves won't appear without sensor support.
     }
     return () => {
       subscription?.remove?.();
@@ -567,19 +576,25 @@ export default function App() {
                     {
                       translateY: leaf.progress.interpolate({
                         inputRange: [0, 1],
-                        outputRange: [-34, 760]
+                        outputRange: [-40, leaf.fallDistance]
                       })
                     },
                     {
                       translateX: leaf.progress.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0, leaf.drift]
+                        inputRange: [0, 0.25, 0.5, 0.75, 1],
+                        outputRange: [0, leaf.driftA, leaf.driftB, leaf.driftC, leaf.driftA]
                       })
                     },
                     {
                       rotate: leaf.rotate.interpolate({
                         inputRange: [0, 1],
-                        outputRange: ["0deg", "360deg"]
+                        outputRange: ["0deg", "540deg"]
+                      })
+                    },
+                    {
+                      scale: leaf.progress.interpolate({
+                        inputRange: [0, 0.5, 1],
+                        outputRange: [0.95, 1.08, 0.98]
                       })
                     }
                   ],
@@ -597,8 +612,6 @@ export default function App() {
         <ScrollView
           style={styles.screen}
           contentContainerStyle={styles.content}
-          onScroll={() => spawnLeafBurst(5)}
-          scrollEventThrottle={120}
         >
         <View style={styles.hero}>
           <View style={styles.heroTopRow}>
