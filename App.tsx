@@ -12,6 +12,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  Vibration,
   View
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
@@ -238,9 +239,11 @@ export default function App() {
   const [introPercent, setIntroPercent] = useState(0);
   const [leafParticles, setLeafParticles] = useState<LeafParticle[]>([]);
   const [curiosityBySpecies, setCuriosityBySpecies] = useState<Record<string, string>>({});
+  const [motionSupported, setMotionSupported] = useState(false);
   const introProgress = useMemo(() => new Animated.Value(0), []);
   const leafSeq = useRef(0);
   const lastLeafBurstAtRef = useRef(0);
+  const lastVibrationAtRef = useRef(0);
 
   const t = copy[language];
   const hfToken = process.env.EXPO_PUBLIC_HUGGINGFACE_TOKEN;
@@ -334,21 +337,43 @@ export default function App() {
     try {
       const sensors = require("expo-sensors");
       const DeviceMotion = sensors?.DeviceMotion;
-      if (!DeviceMotion?.addListener) return;
-      DeviceMotion.setUpdateInterval?.(300);
-      subscription = DeviceMotion.addListener((event: any) => {
-        const acc = event?.accelerationIncludingGravity || event?.acceleration;
-        if (!acc) return;
-        const magnitude = Math.abs(acc.x || 0) + Math.abs(acc.y || 0) + Math.abs(acc.z || 0);
-        const rot = event?.rotationRate || {};
-        const rotation =
-          Math.abs(rot.alpha || 0) + Math.abs(rot.beta || 0) + Math.abs(rot.gamma || 0);
-        if (magnitude > 1.9 || rotation > 2.4) {
-          spawnLeafBurst(6);
+      if (!DeviceMotion?.addListener) {
+        setMotionSupported(false);
+        return;
+      }
+      setMotionSupported(true);
+
+      const setupMotion = async (): Promise<void> => {
+        if (typeof DeviceMotion.requestPermissionsAsync === "function") {
+          const permission = await DeviceMotion.requestPermissionsAsync();
+          if (permission?.status !== "granted") {
+            setMotionSupported(false);
+            return;
+          }
         }
-      });
+
+        DeviceMotion.setUpdateInterval?.(220);
+        subscription = DeviceMotion.addListener((event: any) => {
+          const acc = event?.accelerationIncludingGravity || event?.acceleration;
+          if (!acc) return;
+          const magnitude = Math.abs(acc.x || 0) + Math.abs(acc.y || 0) + Math.abs(acc.z || 0);
+          const rot = event?.rotationRate || {};
+          const rotation =
+            Math.abs(rot.alpha || 0) + Math.abs(rot.beta || 0) + Math.abs(rot.gamma || 0);
+          if (magnitude > 2.25 || rotation > 2.9) {
+            const now = Date.now();
+            if (now - lastVibrationAtRef.current > 600) {
+              lastVibrationAtRef.current = now;
+              Vibration.vibrate(18);
+            }
+            spawnLeafBurst(8);
+          }
+        });
+      };
+
+      void setupMotion();
     } catch {
-      // Device motion is optional; leaves won't appear without sensor support.
+      setMotionSupported(false);
     }
     return () => {
       subscription?.remove?.();
@@ -472,7 +497,7 @@ export default function App() {
   useEffect(() => {
     const species = currentResult?.knowledge?.scientificName || currentResult?.knowledge?.commonName;
     if (!species || !backendUrl) return;
-    const cacheKey = species.trim().toLowerCase();
+    const cacheKey = `${species.trim().toLowerCase()}|${language}`;
     if (curiosityBySpecies[cacheKey]) return;
 
     const normalizedBackendUrl = backendUrl.endsWith("/") ? backendUrl.slice(0, -1) : backendUrl;
@@ -481,7 +506,9 @@ export default function App() {
     void (async () => {
       try {
         const response = await fetch(
-          `${normalizedBackendUrl}/plants/${encodeURIComponent(species)}/curiosity`
+          `${normalizedBackendUrl}/plants/${encodeURIComponent(species)}/curiosity?lang=${encodeURIComponent(
+            language
+          )}`
         );
         if (!response.ok) return;
         const payload = (await response.json()) as { curiosity?: string };
@@ -499,7 +526,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [currentResult?.knowledge?.scientificName, currentResult?.knowledge?.commonName, backendUrl, curiosityBySpecies]);
+  }, [currentResult?.knowledge?.scientificName, currentResult?.knowledge?.commonName, backendUrl, curiosityBySpecies, language]);
 
   const WebLottie = Platform.OS === "web" ? (require("lottie-react").default as any) : null;
   const sectionLinks = currentResult?.knowledge.sectionLinks;
@@ -673,6 +700,7 @@ export default function App() {
               <Text style={styles.diagnosticsLine}>{`HF history model: ${hfHistoryModel || "mancante (opzionale, ma consigliato)"}`}</Text>
               <Text style={styles.diagnosticsLine}>{`HF narrative model: ${hfNarrativeModel || "mancante (opzionale)"}`}</Text>
               <Text style={styles.diagnosticsLine}>{`PlantNet key: ${plantNetKey ? "presente" : "mancante (opzionale se usi HF bio)"}`}</Text>
+              <Text style={styles.diagnosticsLine}>{`Motion trigger: ${motionSupported ? "attivo" : "non disponibile"}`}</Text>
             </View>
           )}
         </View>
@@ -775,9 +803,9 @@ export default function App() {
               title={t.funFacts}
               body={
                 curiosityBySpecies[
-                  (currentResult.knowledge.scientificName || currentResult.knowledge.commonName || "")
+                  `${(currentResult.knowledge.scientificName || currentResult.knowledge.commonName || "")
                     .trim()
-                    .toLowerCase()
+                    .toLowerCase()}|${language}`
                 ] || currentResult.narrative.funFacts
               }
               onPress={sectionLinks?.funFacts ? () => void openSourceLink(sectionLinks.funFacts!) : null}

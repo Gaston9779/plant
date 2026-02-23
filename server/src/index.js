@@ -365,11 +365,12 @@ const keepMaxTwoSentences = (text) => {
   return parts.slice(0, 2).join(" ");
 };
 
-const generateCuriosityForSpecies = async (species) => {
+const generateCuriosityForSpecies = async (species, language = "en") => {
   const normalizedSpecies = String(species || "").trim();
   if (!normalizedSpecies) return CURIOSITY_FALLBACK;
+  const safeLanguage = ["it", "en", "es"].includes(language) ? language : "en";
 
-  const cacheKey = normalizeSpeciesKey(normalizedSpecies);
+  const cacheKey = `${normalizeSpeciesKey(normalizedSpecies)}|${safeLanguage}`;
   const cached = curiosityCache.get(cacheKey);
   if (cached) return cached;
 
@@ -378,7 +379,11 @@ const generateCuriosityForSpecies = async (species) => {
     return CURIOSITY_FALLBACK;
   }
 
-  const prompt = `Give one interesting factual curiosity about the plant ${normalizedSpecies}.\nBe concise and avoid speculation.`;
+  const prompt = [
+    `Give one interesting factual curiosity about the plant ${normalizedSpecies}.`,
+    "Be concise and avoid speculation.",
+    `Write in ${LANGUAGE_NAME[safeLanguage]}.`
+  ].join("\n");
   try {
     const response = await fetch(`${HF_ROUTER}/v1/chat/completions`, {
       method: "POST",
@@ -869,12 +874,13 @@ app.get("/", (_req, res) => {
 
 app.get("/plants/:species/curiosity", async (req, res) => {
   const rawSpecies = decodeURIComponent(String(req.params?.species || "")).trim();
+  const requestedLanguage = String(req.query?.lang || "en").toLowerCase();
   if (!rawSpecies) {
     res.status(400).json({ species: "", curiosity: CURIOSITY_FALLBACK });
     return;
   }
 
-  const curiosity = await generateCuriosityForSpecies(rawSpecies);
+  const curiosity = await generateCuriosityForSpecies(rawSpecies, requestedLanguage);
   res.json({
     species: rawSpecies,
     curiosity
