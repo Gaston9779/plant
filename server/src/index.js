@@ -63,11 +63,6 @@ const LANGUAGE_FALLBACKS = {
   en: ["eng", "en"],
   es: ["spa", "es", "en", "eng"]
 };
-const EOL_LANGUAGE_FALLBACKS = {
-  it: ["it", "en"],
-  en: ["en"],
-  es: ["es", "en"]
-};
 const WIKI_SECTION_KEYWORDS = {
   it: {
     history: ["storia", "etimologia", "origine"],
@@ -148,6 +143,14 @@ const truncateText = (value, maxLen = 260) => {
   if (clean.length <= maxLen) return clean;
   return `${clean.slice(0, maxLen - 1).trimEnd()}…`;
 };
+
+const splitSentences = (value) =>
+  String(value || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(/(?<=[.!?])\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
 
 const regionNameFromCode = (code, language) => {
   try {
@@ -469,69 +472,13 @@ const fetchGbifHabitatEvidence = async (usageKey, scientificName, language) => {
   };
 };
 
-const fetchEolEvidence = async (scientificName, language) => {
-  const safeLanguage = ["it", "en", "es"].includes(language) ? language : "en";
-  const scientificBase = scientificName.split(" ").slice(0, 2).join(" ");
-  const searchData =
-    (await fetchJsonOrNull(
-      `https://eol.org/api/search/1.0.json?q=${encodeURIComponent(scientificName)}&page=1&exact=true`
-    )) ||
-    (await fetchJsonOrNull(
-      `https://eol.org/api/search/1.0.json?q=${encodeURIComponent(scientificBase)}&page=1&exact=false`
-    ));
-  if (!searchData) return null;
-  const firstResult = searchData?.results?.[0];
-  if (!firstResult?.id) return null;
-
-  const pageId = firstResult.id;
-  const pageUrl = `https://eol.org/pages/${pageId}`;
-  const pageData = await fetchJsonOrNull(
-    `https://eol.org/api/pages/1.0/${pageId}.json?details=true&taxonomy=false&images_per_page=0&videos_per_page=0&sounds_per_page=0&maps_per_page=0&texts_per_page=40&language=en`
-  );
-  if (!pageData) return null;
-  const dataObjects = Array.isArray(pageData?.taxonConcept?.dataObjects)
-    ? pageData.taxonConcept.dataObjects
-    : [];
-  if (!dataObjects.length) return null;
-
-  const languageFallbacks = EOL_LANGUAGE_FALLBACKS[safeLanguage] || EOL_LANGUAGE_FALLBACKS.en;
-  const cleaned = dataObjects
-    .filter((item) => item?.dataType === "http://purl.org/dc/dcmitype/Text")
-    .map((item) => ({
-      text: stripHtml(item?.description || ""),
-      language: String(item?.language || "").toLowerCase(),
-      subject: Array.isArray(item?.subject)
-        ? item.subject.map((v) => String(v).toLowerCase()).join(" ")
-        : String(item?.subject || "").toLowerCase()
-    }))
-    .filter(Boolean)
-    .filter((item) => item.text.length > 80);
-
-  if (!cleaned.length) return null;
-
-  const preferred = cleaned.filter((item) => languageFallbacks.includes(item.language));
-  const english = cleaned.filter((item) => item.language === "en");
-  const latinScript = cleaned.filter((item) => /[A-Za-zÀ-ÖØ-öø-ÿ]/.test(item.text));
-  const pool = preferred.length ? preferred : english.length ? english : latinScript.length ? latinScript : cleaned;
-
-  const sorted = [...pool].sort((a, b) => {
-    const aScore =
-      (a.subject.includes("brief summary") ? 3 : 0) +
-      (a.subject.includes("comprehensive description") ? 2 : 0);
-    const bScore =
-      (b.subject.includes("brief summary") ? 3 : 0) +
-      (b.subject.includes("comprehensive description") ? 2 : 0);
-    return bScore - aScore;
-  });
-
-  const historyText = truncateText(sorted[0]?.text || "", 280);
-  const funFactsText = truncateText(sorted[1]?.text || sorted[0]?.text || "", 240);
-  if (!historyText) return null;
+const buildWikiSummaryEvidence = (summaryText) => {
+  const sentences = splitSentences(stripHtml(summaryText || ""));
+  const richSentences = sentences.filter((part) => part.length > 35);
+  if (!richSentences.length) return null;
   return {
-    historyText,
-    funFactsText,
-    sourceUrl: pageUrl,
-    searchUrl: `https://eol.org/search?q=${encodeURIComponent(scientificBase)}`
+    historyText: truncateText(richSentences[0], 280),
+    funFactsText: truncateText(richSentences[1] || richSentences[0], 240)
   };
 };
 
@@ -640,12 +587,12 @@ const fetchKnowledge = async (species, language) => {
   );
   const gbifCommonName = await fetchGbifCommonName(gbif?.usageKey, language);
   const gbifHabitat = await fetchGbifHabitatEvidence(gbif?.usageKey, scientificName, language);
-  const eolEvidence = await fetchEolEvidence(scientificName, language);
   const wikiSectionEvidence = await fetchWikiSectionEvidence(
     wiki?.title || scientificName,
     language,
     wiki?.content_urls?.desktop?.page || null
   );
+  const wikiSummaryEvidence = buildWikiSummaryEvidence(wiki?.extract || "");
   const wikiLooksScientific = wikiTitle && isLikelyScientificName(wikiTitle, scientificName);
   const wikidataLooksScientific =
     wikidataLabel && isLikelyScientificName(wikidataLabel, scientificName);
@@ -661,8 +608,8 @@ const fetchKnowledge = async (species, language) => {
 
   const externalEvidence = {
     habitat: gbifHabitat?.text || null,
-    history: eolEvidence?.historyText || wikiSectionEvidence?.historyText || null,
-    funFacts: eolEvidence?.funFactsText || wikiSectionEvidence?.funFactsText || null
+    history: wikiSectionEvidence?.historyText || wikiSummaryEvidence?.historyText || null,
+    funFacts: wikiSectionEvidence?.funFactsText || wikiSummaryEvidence?.funFactsText || null
   };
 
   return {
@@ -674,18 +621,10 @@ const fetchKnowledge = async (species, language) => {
     imageUrl: wiki?.originalimage?.source || wiki?.thumbnail?.source || null,
     habitatMapPreviewUrl: gbifHabitat?.mapPreviewUrl || null,
     sectionLinks: buildSectionLinks(wiki?.content_urls?.desktop?.page || null, scientificName, language, {
-      history:
-        eolEvidence?.sourceUrl ||
-        wikiSectionEvidence?.historyUrl ||
-        eolEvidence?.searchUrl ||
-        `https://eol.org/search?q=${encodeURIComponent(scientificName)}`,
+      history: wikiSectionEvidence?.historyUrl || wiki?.content_urls?.desktop?.page || null,
       habitat: gbifHabitat?.sourceUrl || null,
       toxicity: buildAspcaSearchUrl(commonName, scientificName),
-      funFacts:
-        eolEvidence?.sourceUrl ||
-        wikiSectionEvidence?.funFactsUrl ||
-        eolEvidence?.searchUrl ||
-        `https://eol.org/search?q=${encodeURIComponent(scientificName)}`
+      funFacts: wikiSectionEvidence?.funFactsUrl || wiki?.content_urls?.desktop?.page || null
     }),
     externalEvidence,
     publication: gbifDetails?.publishedIn || gbif?.scientificNameAuthorship || "Unknown",
@@ -695,7 +634,6 @@ const fetchKnowledge = async (species, language) => {
     sourceLinks: [
       wiki?.content_urls?.desktop?.page,
       gbifHabitat?.sourceUrl,
-      eolEvidence?.sourceUrl,
       wikiSectionEvidence?.historyUrl,
       wikiSectionEvidence?.funFactsUrl,
       "https://api.gbif.org/v1/species/match"
@@ -764,7 +702,7 @@ const generateNarrative = async (knowledge, language) => {
     "All output fields must be in the requested language only.",
     "If any source sentence is in another language, translate it fully.",
     "Use correct orthography: accents and apostrophes must be preserved when required by the language.",
-    "Use source grounding: keep description from Wikipedia summary, habitat from GBIF evidence, and history/funFacts from EOL or Wikipedia section evidence when provided.",
+    "Use source grounding: keep description/history/funFacts from Wikipedia evidence and habitat from GBIF evidence.",
     "If a source field is missing, write a concise 'data not available' sentence instead of inventing details.",
     "Do not include markdown or code fences.",
     `Keep scientific name unchanged: \"${knowledge.scientificName}\".`,
