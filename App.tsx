@@ -234,6 +234,7 @@ export default function App() {
   const [showIntro, setShowIntro] = useState(true);
   const [introPercent, setIntroPercent] = useState(0);
   const [leafParticles, setLeafParticles] = useState<LeafParticle[]>([]);
+  const [curiosityBySpecies, setCuriosityBySpecies] = useState<Record<string, string>>({});
   const introProgress = useMemo(() => new Animated.Value(0), []);
   const leafSeq = useRef(0);
   const lastLeafBurstAtRef = useRef(0);
@@ -458,6 +459,38 @@ export default function App() {
   const handleLanguageChange = (code: LanguageCode): void => {
     setLanguage(code);
   };
+
+  useEffect(() => {
+    const species = currentResult?.knowledge?.scientificName || currentResult?.knowledge?.commonName;
+    if (!species || !backendUrl) return;
+    const cacheKey = species.trim().toLowerCase();
+    if (curiosityBySpecies[cacheKey]) return;
+
+    const normalizedBackendUrl = backendUrl.endsWith("/") ? backendUrl.slice(0, -1) : backendUrl;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const response = await fetch(
+          `${normalizedBackendUrl}/plants/${encodeURIComponent(species)}/curiosity`
+        );
+        if (!response.ok) return;
+        const payload = (await response.json()) as { curiosity?: string };
+        const curiosity = String(payload?.curiosity || "").trim();
+        if (!curiosity || cancelled) return;
+        setCuriosityBySpecies((prev) => ({
+          ...prev,
+          [cacheKey]: curiosity
+        }));
+      } catch (error) {
+        console.error("[curiosity] failed", error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentResult?.knowledge?.scientificName, currentResult?.knowledge?.commonName, backendUrl, curiosityBySpecies]);
 
   const WebLottie = Platform.OS === "web" ? (require("lottie-react").default as any) : null;
   const sectionLinks = currentResult?.knowledge.sectionLinks;
@@ -727,7 +760,13 @@ export default function App() {
             <SectionCard
               icon="✨"
               title={t.funFacts}
-              body={currentResult.narrative.funFacts}
+              body={
+                curiosityBySpecies[
+                  (currentResult.knowledge.scientificName || currentResult.knowledge.commonName || "")
+                    .trim()
+                    .toLowerCase()
+                ] || currentResult.narrative.funFacts
+              }
               onPress={sectionLinks?.funFacts ? () => void openSourceLink(sectionLinks.funFacts!) : null}
             />
           </View>

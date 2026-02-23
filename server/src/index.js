@@ -24,7 +24,13 @@ const HF_NARRATIVE_MODEL =
   process.env.HF_HISTORY_MODEL ||
   process.env.EXPO_PUBLIC_HF_NARRATIVE_MODEL ||
   process.env.EXPO_PUBLIC_HF_HISTORY_MODEL;
+const HF_CURIOSITY_MODEL =
+  process.env.HF_CURIOSITY_MODEL ||
+  process.env.EXPO_PUBLIC_HF_CURIOSITY_MODEL ||
+  HF_NARRATIVE_MODEL;
 const HF_ROUTER = "https://router.huggingface.co";
+const CURIOSITY_FALLBACK = "Curiosity not available for this plant.";
+const curiosityCache = new Map();
 const LANGUAGE_NAME = {
   it: "Italian",
   en: "English",
@@ -335,6 +341,88 @@ const getUnavailableByLanguage = (language, topic) => {
     return `Dato no disponible de una fuente verificada para ${topic}.`;
   }
   return `Verified source data not available for ${topic}.`;
+};
+
+const normalizeSpeciesKey = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase();
+
+const extractCuriosityText = (content) =>
+  String(content || "")
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const looksUncertain = (text) =>
+  /i\s*(am|\'m)\s*not\s*sure|uncertain|unknown|cannot|can\'t|unable|no\s*information/i.test(
+    String(text || "")
+  );
+
+const keepMaxTwoSentences = (text) => {
+  const parts = splitSentences(text);
+  if (!parts.length) return "";
+  return parts.slice(0, 2).join(" ");
+};
+
+const generateCuriosityForSpecies = async (species) => {
+  const normalizedSpecies = String(species || "").trim();
+  if (!normalizedSpecies) return CURIOSITY_FALLBACK;
+
+  const cacheKey = normalizeSpeciesKey(normalizedSpecies);
+  const cached = curiosityCache.get(cacheKey);
+  if (cached) return cached;
+
+  if (!HF_TOKEN || !HF_CURIOSITY_MODEL) {
+    curiosityCache.set(cacheKey, CURIOSITY_FALLBACK);
+    return CURIOSITY_FALLBACK;
+  }
+
+  const prompt = `Give one interesting factual curiosity about the plant ${normalizedSpecies}.\nBe concise and avoid speculation.`;
+  try {
+    const response = await fetch(`${HF_ROUTER}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${HF_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: HF_CURIOSITY_MODEL,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.2,
+        max_tokens: 120
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await extractHttpError(response);
+      console.error("[curiosity] provider error", {
+        status: response.status,
+        species: normalizedSpecies,
+        error: errorText
+      });
+      curiosityCache.set(cacheKey, CURIOSITY_FALLBACK);
+      return CURIOSITY_FALLBACK;
+    }
+
+    const payload = await response.json();
+    const raw = payload?.choices?.[0]?.message?.content;
+    const cleaned = keepMaxTwoSentences(extractCuriosityText(raw));
+    if (!cleaned || looksUncertain(cleaned)) {
+      curiosityCache.set(cacheKey, CURIOSITY_FALLBACK);
+      return CURIOSITY_FALLBACK;
+    }
+
+    curiosityCache.set(cacheKey, cleaned);
+    return cleaned;
+  } catch (error) {
+    console.error("[curiosity] request failed", {
+      species: normalizedSpecies,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    curiosityCache.set(cacheKey, CURIOSITY_FALLBACK);
+    return CURIOSITY_FALLBACK;
+  }
 };
 
 const fetchWikidataNames = async (wikibaseItem, language) => {
@@ -776,6 +864,20 @@ app.get("/", (_req, res) => {
     ok: true,
     service: "plant-discovery-server",
     endpoints: ["/health", "/identify"]
+  });
+});
+
+app.get("/plants/:species/curiosity", async (req, res) => {
+  const rawSpecies = decodeURIComponent(String(req.params?.species || "")).trim();
+  if (!rawSpecies) {
+    res.status(400).json({ species: "", curiosity: CURIOSITY_FALLBACK });
+    return;
+  }
+
+  const curiosity = await generateCuriosityForSpecies(rawSpecies);
+  res.json({
+    species: rawSpecies,
+    curiosity
   });
 });
 
