@@ -246,6 +246,7 @@ export default function App() {
   const lastLeafBurstAtRef = useRef(0);
   const lastVibrationAtRef = useRef(0);
   const motionSubscriptionRef = useRef<{ remove: () => void } | null>(null);
+  const motionWebCleanupRef = useRef<(() => void) | null>(null);
 
   const t = copy[language];
   const hfToken = process.env.EXPO_PUBLIC_HUGGINGFACE_TOKEN;
@@ -334,8 +335,52 @@ export default function App() {
     });
   };
 
+  const onMotionSample = (accSource: any, rotationSource: any): void => {
+    const acc = accSource || {};
+    const magnitude = Math.abs(acc.x || 0) + Math.abs(acc.y || 0) + Math.abs(acc.z || 0);
+    const rot = rotationSource || {};
+    const rotation = Math.abs(rot.alpha || 0) + Math.abs(rot.beta || 0) + Math.abs(rot.gamma || 0);
+    if (magnitude > 2.25 || rotation > 2.9) {
+      const now = Date.now();
+      if (now - lastVibrationAtRef.current > 600) {
+        lastVibrationAtRef.current = now;
+        Vibration.vibrate(18);
+      }
+      spawnLeafBurst(8);
+    }
+  };
+
   const activateMotionTrigger = async (): Promise<void> => {
     try {
+      if (Platform.OS === "web") {
+        const win = window as any;
+        const dm = win?.DeviceMotionEvent;
+        if (!win?.addEventListener || !dm) {
+          setMotionSupported(false);
+          setMotionNeedsTap(false);
+          return;
+        }
+
+        if (typeof dm.requestPermission === "function") {
+          const permission = await dm.requestPermission();
+          if (permission !== "granted") {
+            setMotionSupported(false);
+            setMotionNeedsTap(true);
+            return;
+          }
+        }
+
+        motionWebCleanupRef.current?.();
+        const handler = (event: any) => {
+          onMotionSample(event?.accelerationIncludingGravity || event?.acceleration, event?.rotationRate);
+        };
+        win.addEventListener("devicemotion", handler);
+        motionWebCleanupRef.current = () => win.removeEventListener("devicemotion", handler);
+        setMotionSupported(true);
+        setMotionNeedsTap(false);
+        return;
+      }
+
       const sensors = require("expo-sensors");
       const DeviceMotion = sensors?.DeviceMotion;
       if (!DeviceMotion?.addListener) {
@@ -356,20 +401,7 @@ export default function App() {
       DeviceMotion.setUpdateInterval?.(220);
       motionSubscriptionRef.current?.remove?.();
       motionSubscriptionRef.current = DeviceMotion.addListener((event: any) => {
-        const acc = event?.accelerationIncludingGravity || event?.acceleration;
-        if (!acc) return;
-        const magnitude = Math.abs(acc.x || 0) + Math.abs(acc.y || 0) + Math.abs(acc.z || 0);
-        const rot = event?.rotationRate || {};
-        const rotation =
-          Math.abs(rot.alpha || 0) + Math.abs(rot.beta || 0) + Math.abs(rot.gamma || 0);
-        if (magnitude > 2.25 || rotation > 2.9) {
-          const now = Date.now();
-          if (now - lastVibrationAtRef.current > 600) {
-            lastVibrationAtRef.current = now;
-            Vibration.vibrate(18);
-          }
-          spawnLeafBurst(8);
-        }
+        onMotionSample(event?.accelerationIncludingGravity || event?.acceleration, event?.rotationRate);
       });
 
       setMotionSupported(true);
@@ -381,10 +413,16 @@ export default function App() {
   };
 
   useEffect(() => {
-    void activateMotionTrigger();
+    if (Platform.OS === "web") {
+      setMotionNeedsTap(true);
+    } else {
+      void activateMotionTrigger();
+    }
     return () => {
       motionSubscriptionRef.current?.remove?.();
       motionSubscriptionRef.current = null;
+      motionWebCleanupRef.current?.();
+      motionWebCleanupRef.current = null;
     };
   }, []);
 
@@ -709,7 +747,7 @@ export default function App() {
               <Text style={styles.diagnosticsLine}>{`HF narrative model: ${hfNarrativeModel || "mancante (opzionale)"}`}</Text>
               <Text style={styles.diagnosticsLine}>{`PlantNet key: ${plantNetKey ? "presente" : "mancante (opzionale se usi HF bio)"}`}</Text>
               <Text style={styles.diagnosticsLine}>{`Motion trigger: ${motionSupported ? "attivo" : "non disponibile"}`}</Text>
-              {!motionSupported && Platform.OS !== "web" && (
+              {!motionSupported && (
                 <Pressable
                   style={styles.motionButton}
                   onPress={() => {
