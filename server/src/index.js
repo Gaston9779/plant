@@ -66,15 +66,18 @@ const LANGUAGE_FALLBACKS = {
 const WIKI_SECTION_KEYWORDS = {
   it: {
     history: ["storia", "etimologia", "origine"],
-    funFacts: ["curiosita", "usi", "cultura", "tradizione", "folklore"]
+    funFacts: ["curiosita", "usi", "cultura", "tradizione", "folklore"],
+    toxicity: ["tossicita", "tossicologia", "velenosa", "velenoso", "veleno", "toxic"]
   },
   en: {
     history: ["history", "etymology", "origin"],
-    funFacts: ["trivia", "uses", "culture", "tradition", "folklore"]
+    funFacts: ["trivia", "uses", "culture", "tradition", "folklore"],
+    toxicity: ["toxicity", "toxic", "poison", "poisonous", "safety"]
   },
   es: {
     history: ["historia", "etimologia", "origen"],
-    funFacts: ["curiosidades", "usos", "cultura", "tradicion", "folclore"]
+    funFacts: ["curiosidades", "usos", "cultura", "tradicion", "folclore"],
+    toxicity: ["toxicidad", "toxico", "veneno", "venenosa", "venenoso"]
   }
 };
 
@@ -324,13 +327,6 @@ const normalizeForMatch = (value) =>
 
 const isLikelyFamilyOnly = (value) => /aceae$/i.test(String(value || "").trim());
 
-const buildAspcaSearchUrl = (commonName, scientificName) => {
-  const query = `${commonName || ""} ${scientificName || ""} toxic non-toxic plants`.trim();
-  return `https://www.google.com/search?q=${encodeURIComponent(
-    `site:aspca.org ${query}`
-  )}`;
-};
-
 const getUnavailableByLanguage = (language, topic) => {
   if (language === "it") {
     return `Dato non disponibile da fonte verificata per ${topic}.`;
@@ -527,19 +523,23 @@ const fetchWikiSectionEvidence = async (wikiTitle, language, wikiPageUrl) => {
 
   const historySection = pickWikiSection(sections, keywords.history);
   const funFactsSection = pickWikiSection(sections, keywords.funFacts);
+  const toxicitySection = pickWikiSection(sections, keywords.toxicity);
   const pageUrl = wikiPageUrl || buildWikiPageUrl(wikiTitle, safeLanguage);
 
-  const [historyText, funFactsText] = await Promise.all([
+  const [historyText, funFactsText, toxicityText] = await Promise.all([
     historySection ? fetchWikiSectionText(wikiTitle, safeLanguage, historySection.index) : null,
-    funFactsSection ? fetchWikiSectionText(wikiTitle, safeLanguage, funFactsSection.index) : null
+    funFactsSection ? fetchWikiSectionText(wikiTitle, safeLanguage, funFactsSection.index) : null,
+    toxicitySection ? fetchWikiSectionText(wikiTitle, safeLanguage, toxicitySection.index) : null
   ]);
 
-  if (!historyText && !funFactsText) return null;
+  if (!historyText && !funFactsText && !toxicityText) return null;
   return {
     historyText: historyText || null,
     funFactsText: funFactsText || null,
+    toxicityText: toxicityText || null,
     historyUrl: historySection ? buildWikiSectionUrl(pageUrl, historySection.line) : pageUrl,
-    funFactsUrl: funFactsSection ? buildWikiSectionUrl(pageUrl, funFactsSection.line) : pageUrl
+    funFactsUrl: funFactsSection ? buildWikiSectionUrl(pageUrl, funFactsSection.line) : pageUrl,
+    toxicityUrl: toxicitySection ? buildWikiSectionUrl(pageUrl, toxicitySection.line) : pageUrl
   };
 };
 
@@ -609,7 +609,8 @@ const fetchKnowledge = async (species, language) => {
   const externalEvidence = {
     habitat: gbifHabitat?.text || null,
     history: wikiSectionEvidence?.historyText || wikiSummaryEvidence?.historyText || null,
-    funFacts: wikiSectionEvidence?.funFactsText || wikiSummaryEvidence?.funFactsText || null
+    funFacts: wikiSectionEvidence?.funFactsText || wikiSummaryEvidence?.funFactsText || null,
+    toxicity: wikiSectionEvidence?.toxicityText || null
   };
 
   return {
@@ -623,7 +624,7 @@ const fetchKnowledge = async (species, language) => {
     sectionLinks: buildSectionLinks(wiki?.content_urls?.desktop?.page || null, scientificName, language, {
       history: wikiSectionEvidence?.historyUrl || wiki?.content_urls?.desktop?.page || null,
       habitat: gbifHabitat?.sourceUrl || null,
-      toxicity: buildAspcaSearchUrl(commonName, scientificName),
+      toxicity: wikiSectionEvidence?.toxicityUrl || wiki?.content_urls?.desktop?.page || null,
       funFacts: wikiSectionEvidence?.funFactsUrl || wiki?.content_urls?.desktop?.page || null
     }),
     externalEvidence,
@@ -636,6 +637,7 @@ const fetchKnowledge = async (species, language) => {
       gbifHabitat?.sourceUrl,
       wikiSectionEvidence?.historyUrl,
       wikiSectionEvidence?.funFactsUrl,
+      wikiSectionEvidence?.toxicityUrl,
       "https://api.gbif.org/v1/species/match"
     ].filter(Boolean)
   };
@@ -645,6 +647,7 @@ const fallbackNarrative = (knowledge, language) => {
   const evidenceHabitat = knowledge?.externalEvidence?.habitat;
   const evidenceHistory = knowledge?.externalEvidence?.history;
   const evidenceFunFacts = knowledge?.externalEvidence?.funFacts;
+  const evidenceToxicity = knowledge?.externalEvidence?.toxicity;
   const unavailableHistory = getUnavailableByLanguage(language, "storia");
   const unavailableHabitat = getUnavailableByLanguage(language, "habitat");
   const unavailableFunFacts = getUnavailableByLanguage(language, "curiosità");
@@ -653,7 +656,7 @@ const fallbackNarrative = (knowledge, language) => {
       description: `${knowledge.commonName} (${knowledge.scientificName}) appartiene alla famiglia ${knowledge.family} e al genere ${knowledge.genus}.`,
       history: evidenceHistory || unavailableHistory,
       habitat: evidenceHabitat || unavailableHabitat,
-      toxicity: "La tossicità varia per specie e dose; verifica sempre con fonti botaniche o veterinarie affidabili.",
+      toxicity: evidenceToxicity || getUnavailableByLanguage(language, "tossicità"),
       care: "Fornisci luce adeguata, irrigazione moderata e drenaggio corretto. Adatta la cura alla specie identificata.",
       funFacts: evidenceFunFacts || unavailableFunFacts
     };
@@ -664,7 +667,7 @@ const fallbackNarrative = (knowledge, language) => {
       description: `${knowledge.commonName} (${knowledge.scientificName}) pertenece a la familia ${knowledge.family} y al genero ${knowledge.genus}.`,
       history: evidenceHistory || getUnavailableByLanguage(language, "historia"),
       habitat: evidenceHabitat || getUnavailableByLanguage(language, "hábitat"),
-      toxicity: "La toxicidad varia por especie y dosis; confirma con fuentes botanicas o veterinarias fiables.",
+      toxicity: evidenceToxicity || getUnavailableByLanguage(language, "toxicidad"),
       care: "Proporciona luz adecuada, riego moderado y buen drenaje. Ajusta el cuidado a la especie identificada.",
       funFacts: evidenceFunFacts || getUnavailableByLanguage(language, "curiosidades")
     };
@@ -674,7 +677,7 @@ const fallbackNarrative = (knowledge, language) => {
     description: `${knowledge.commonName} (${knowledge.scientificName}) belongs to the ${knowledge.family} family and genus ${knowledge.genus}.`,
     history: evidenceHistory || getUnavailableByLanguage(language, "history"),
     habitat: evidenceHabitat || getUnavailableByLanguage(language, "habitat"),
-    toxicity: "Toxicity varies by species and dose; confirm with trusted botanical or veterinary sources.",
+    toxicity: evidenceToxicity || getUnavailableByLanguage(language, "toxicity"),
     care: "Provide adequate light, moderate irrigation, and proper drainage. Adapt care to the exact species.",
     funFacts: evidenceFunFacts || getUnavailableByLanguage(language, "fun facts")
   };
@@ -747,6 +750,10 @@ const generateNarrative = async (knowledge, language) => {
     knowledge?.externalEvidence?.funFacts && typeof knowledge.externalEvidence.funFacts === "string"
       ? knowledge.externalEvidence.funFacts
       : getUnavailableByLanguage(safeLanguage, safeLanguage === "it" ? "curiosità" : "fun facts");
+  parsed.toxicity =
+    knowledge?.externalEvidence?.toxicity && typeof knowledge.externalEvidence.toxicity === "string"
+      ? knowledge.externalEvidence.toxicity
+      : getUnavailableByLanguage(safeLanguage, safeLanguage === "it" ? "tossicità" : "toxicity");
   return parsed;
 };
 
