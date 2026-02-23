@@ -240,10 +240,12 @@ export default function App() {
   const [leafParticles, setLeafParticles] = useState<LeafParticle[]>([]);
   const [curiosityBySpecies, setCuriosityBySpecies] = useState<Record<string, string>>({});
   const [motionSupported, setMotionSupported] = useState(false);
+  const [motionNeedsTap, setMotionNeedsTap] = useState(false);
   const introProgress = useMemo(() => new Animated.Value(0), []);
   const leafSeq = useRef(0);
   const lastLeafBurstAtRef = useRef(0);
   const lastVibrationAtRef = useRef(0);
+  const motionSubscriptionRef = useRef<{ remove: () => void } | null>(null);
 
   const t = copy[language];
   const hfToken = process.env.EXPO_PUBLIC_HUGGINGFACE_TOKEN;
@@ -332,51 +334,57 @@ export default function App() {
     });
   };
 
-  useEffect(() => {
-    let subscription: { remove: () => void } | null = null;
+  const activateMotionTrigger = async (): Promise<void> => {
     try {
       const sensors = require("expo-sensors");
       const DeviceMotion = sensors?.DeviceMotion;
       if (!DeviceMotion?.addListener) {
         setMotionSupported(false);
+        setMotionNeedsTap(false);
         return;
       }
-      setMotionSupported(true);
 
-      const setupMotion = async (): Promise<void> => {
-        if (typeof DeviceMotion.requestPermissionsAsync === "function") {
-          const permission = await DeviceMotion.requestPermissionsAsync();
-          if (permission?.status !== "granted") {
-            setMotionSupported(false);
-            return;
-          }
+      if (typeof DeviceMotion.requestPermissionsAsync === "function") {
+        const permission = await DeviceMotion.requestPermissionsAsync();
+        if (permission?.status !== "granted") {
+          setMotionSupported(false);
+          setMotionNeedsTap(true);
+          return;
         }
+      }
 
-        DeviceMotion.setUpdateInterval?.(220);
-        subscription = DeviceMotion.addListener((event: any) => {
-          const acc = event?.accelerationIncludingGravity || event?.acceleration;
-          if (!acc) return;
-          const magnitude = Math.abs(acc.x || 0) + Math.abs(acc.y || 0) + Math.abs(acc.z || 0);
-          const rot = event?.rotationRate || {};
-          const rotation =
-            Math.abs(rot.alpha || 0) + Math.abs(rot.beta || 0) + Math.abs(rot.gamma || 0);
-          if (magnitude > 2.25 || rotation > 2.9) {
-            const now = Date.now();
-            if (now - lastVibrationAtRef.current > 600) {
-              lastVibrationAtRef.current = now;
-              Vibration.vibrate(18);
-            }
-            spawnLeafBurst(8);
+      DeviceMotion.setUpdateInterval?.(220);
+      motionSubscriptionRef.current?.remove?.();
+      motionSubscriptionRef.current = DeviceMotion.addListener((event: any) => {
+        const acc = event?.accelerationIncludingGravity || event?.acceleration;
+        if (!acc) return;
+        const magnitude = Math.abs(acc.x || 0) + Math.abs(acc.y || 0) + Math.abs(acc.z || 0);
+        const rot = event?.rotationRate || {};
+        const rotation =
+          Math.abs(rot.alpha || 0) + Math.abs(rot.beta || 0) + Math.abs(rot.gamma || 0);
+        if (magnitude > 2.25 || rotation > 2.9) {
+          const now = Date.now();
+          if (now - lastVibrationAtRef.current > 600) {
+            lastVibrationAtRef.current = now;
+            Vibration.vibrate(18);
           }
-        });
-      };
+          spawnLeafBurst(8);
+        }
+      });
 
-      void setupMotion();
+      setMotionSupported(true);
+      setMotionNeedsTap(false);
     } catch {
       setMotionSupported(false);
+      setMotionNeedsTap(false);
     }
+  };
+
+  useEffect(() => {
+    void activateMotionTrigger();
     return () => {
-      subscription?.remove?.();
+      motionSubscriptionRef.current?.remove?.();
+      motionSubscriptionRef.current = null;
     };
   }, []);
 
@@ -701,6 +709,18 @@ export default function App() {
               <Text style={styles.diagnosticsLine}>{`HF narrative model: ${hfNarrativeModel || "mancante (opzionale)"}`}</Text>
               <Text style={styles.diagnosticsLine}>{`PlantNet key: ${plantNetKey ? "presente" : "mancante (opzionale se usi HF bio)"}`}</Text>
               <Text style={styles.diagnosticsLine}>{`Motion trigger: ${motionSupported ? "attivo" : "non disponibile"}`}</Text>
+              {!motionSupported && Platform.OS !== "web" && (
+                <Pressable
+                  style={styles.motionButton}
+                  onPress={() => {
+                    void activateMotionTrigger();
+                  }}
+                >
+                  <Text style={styles.motionButtonText}>
+                    {motionNeedsTap ? "Abilita movimento" : "Riprova sensore movimento"}
+                  </Text>
+                </Pressable>
+              )}
             </View>
           )}
         </View>
@@ -1107,6 +1127,21 @@ const styles = StyleSheet.create({
   diagnosticsLine: {
     color: theme.colors.textMuted,
     fontSize: 12
+  },
+  motionButton: {
+    marginTop: 8,
+    alignSelf: "flex-start",
+    backgroundColor: theme.colors.background,
+    borderWidth: 1,
+    borderColor: theme.colors.cardBorder,
+    borderRadius: theme.radius.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 7
+  },
+  motionButtonText: {
+    color: theme.colors.heading,
+    fontSize: 12,
+    fontWeight: "700"
   },
   resultWrap: {
     gap: 10
