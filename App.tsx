@@ -32,6 +32,7 @@ const HABITAT_BASEMAP_URL =
   "https://basemaps.cartocdn.com/light_all/0/0/0.png";
 const INTRO_DURATION_MS = 1700;
 const LEAF_EMOJIS = ["🍃", "🍂", "🌿"];
+const LEAF_BURST_MS = 2300;
 
 type LeafParticle = {
   id: string;
@@ -249,6 +250,8 @@ export default function App() {
   const motionWebCleanupRef = useRef<(() => void) | null>(null);
   const lastGravitySampleRef = useRef<{ x: number; y: number; z: number } | null>(null);
   const motionArmedAtRef = useRef(0);
+  const leafBurstActiveRef = useRef(false);
+  const nextShakeAllowedAtRef = useRef(0);
 
   const t = copy[language];
   const hfToken = process.env.EXPO_PUBLIC_HUGGINGFACE_TOKEN;
@@ -293,7 +296,10 @@ export default function App() {
 
   const spawnLeafBurst = (count: number): void => {
     const now = Date.now();
-    if (now - lastLeafBurstAtRef.current < 550) return;
+    if (leafBurstActiveRef.current) return;
+    if (now < nextShakeAllowedAtRef.current) return;
+    leafBurstActiveRef.current = true;
+    nextShakeAllowedAtRef.current = now + LEAF_BURST_MS;
     lastLeafBurstAtRef.current = now;
 
     const nextLeaves: LeafParticle[] = Array.from({ length: count }).map((_, idx) => {
@@ -315,7 +321,7 @@ export default function App() {
     setLeafParticles((prev) => [...prev, ...nextLeaves]);
 
     nextLeaves.forEach((leaf) => {
-      const duration = 2200 + Math.round(Math.random() * 1400);
+      const duration = 1500 + Math.round(Math.random() * 650);
       Animated.parallel([
         Animated.timing(leaf.progress, {
           toValue: 1,
@@ -335,6 +341,11 @@ export default function App() {
         setLeafParticles((prev) => prev.filter((item) => item.id !== leaf.id));
       }, duration + 220);
     });
+
+    setTimeout(() => {
+      leafBurstActiveRef.current = false;
+      setLeafParticles([]);
+    }, LEAF_BURST_MS + 60);
   };
 
   const onMotionSample = (accSource: any, rotationSource: any): void => {
