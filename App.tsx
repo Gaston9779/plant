@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -30,6 +30,17 @@ const BUILD_MARKER = "build-2026-02-22-common-name-map-cache-v2";
 const HABITAT_BASEMAP_URL =
   "https://basemaps.cartocdn.com/light_all/0/0/0.png";
 const INTRO_DURATION_MS = 1700;
+const LEAF_EMOJIS = ["🍃", "🍂", "🌿"];
+
+type LeafParticle = {
+  id: string;
+  x: number;
+  size: number;
+  symbol: string;
+  drift: number;
+  progress: Animated.Value;
+  rotate: Animated.Value;
+};
 
 const copy: Record<
   LanguageCode,
@@ -222,7 +233,10 @@ export default function App() {
   const [lastAnalyzedUri, setLastAnalyzedUri] = useState<string | null>(null);
   const [showIntro, setShowIntro] = useState(true);
   const [introPercent, setIntroPercent] = useState(0);
+  const [leafParticles, setLeafParticles] = useState<LeafParticle[]>([]);
   const introProgress = useMemo(() => new Animated.Value(0), []);
+  const leafSeq = useRef(0);
+  const lastLeafBurstAtRef = useRef(0);
 
   const t = copy[language];
   const hfToken = process.env.EXPO_PUBLIC_HUGGINGFACE_TOKEN;
@@ -264,6 +278,72 @@ export default function App() {
       introProgress.removeListener(listenerId);
     };
   }, [introProgress]);
+
+  const spawnLeafBurst = (count: number): void => {
+    const now = Date.now();
+    if (now - lastLeafBurstAtRef.current < 550) return;
+    lastLeafBurstAtRef.current = now;
+
+    const nextLeaves: LeafParticle[] = Array.from({ length: count }).map((_, idx) => {
+      leafSeq.current += 1;
+      return {
+        id: `leaf-${now}-${leafSeq.current}-${idx}`,
+        x: 8 + Math.random() * 84,
+        size: 18 + Math.round(Math.random() * 12),
+        symbol: LEAF_EMOJIS[Math.floor(Math.random() * LEAF_EMOJIS.length)],
+        drift: -26 + Math.random() * 52,
+        progress: new Animated.Value(0),
+        rotate: new Animated.Value(0)
+      };
+    });
+
+    setLeafParticles((prev) => [...prev, ...nextLeaves]);
+
+    nextLeaves.forEach((leaf) => {
+      const duration = 1600 + Math.round(Math.random() * 900);
+      Animated.parallel([
+        Animated.timing(leaf.progress, {
+          toValue: 1,
+          duration,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: false
+        }),
+        Animated.timing(leaf.rotate, {
+          toValue: 1,
+          duration,
+          easing: Easing.linear,
+          useNativeDriver: false
+        })
+      ]).start();
+
+      setTimeout(() => {
+        setLeafParticles((prev) => prev.filter((item) => item.id !== leaf.id));
+      }, duration + 220);
+    });
+  };
+
+  useEffect(() => {
+    let subscription: { remove: () => void } | null = null;
+    try {
+      const sensors = require("expo-sensors");
+      const DeviceMotion = sensors?.DeviceMotion;
+      if (!DeviceMotion?.addListener) return;
+      DeviceMotion.setUpdateInterval?.(300);
+      subscription = DeviceMotion.addListener((event: any) => {
+        const acc = event?.accelerationIncludingGravity || event?.acceleration;
+        if (!acc) return;
+        const magnitude = Math.abs(acc.x || 0) + Math.abs(acc.y || 0) + Math.abs(acc.z || 0);
+        if (magnitude > 2.1) {
+          spawnLeafBurst(6);
+        }
+      });
+    } catch {
+      // Device motion is optional; scroll trigger still works.
+    }
+    return () => {
+      subscription?.remove?.();
+    };
+  }, []);
 
   useEffect(() => {
     if (!lastAnalyzedUri || !currentResult) return;
@@ -441,7 +521,52 @@ export default function App() {
             )}
           </View>
         )}
-        <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+        <View pointerEvents="none" style={styles.leafOverlay}>
+          {leafParticles.map((leaf) => (
+            <Animated.Text
+              key={leaf.id}
+              style={[
+                styles.leafParticle,
+                {
+                  left: `${leaf.x}%`,
+                  fontSize: leaf.size,
+                  transform: [
+                    {
+                      translateY: leaf.progress.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [-34, 760]
+                      })
+                    },
+                    {
+                      translateX: leaf.progress.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0, leaf.drift]
+                      })
+                    },
+                    {
+                      rotate: leaf.rotate.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: ["0deg", "360deg"]
+                      })
+                    }
+                  ],
+                  opacity: leaf.progress.interpolate({
+                    inputRange: [0, 0.08, 0.92, 1],
+                    outputRange: [0, 1, 1, 0]
+                  })
+                }
+              ]}
+            >
+              {leaf.symbol}
+            </Animated.Text>
+          ))}
+        </View>
+        <ScrollView
+          style={styles.screen}
+          contentContainerStyle={styles.content}
+          onScroll={() => spawnLeafBurst(5)}
+          scrollEventThrottle={120}
+        >
         <View style={styles.hero}>
           <View style={styles.heroTopRow}>
             <View style={styles.heroBadge}>
@@ -710,6 +835,14 @@ const styles = StyleSheet.create({
     height: "100%",
     backgroundColor: "#3f984d",
     borderRadius: 99
+  },
+  leafOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 30
+  },
+  leafParticle: {
+    position: "absolute",
+    top: -18
   },
   loaderOverlay: {
     ...StyleSheet.absoluteFillObject,
