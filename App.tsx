@@ -247,6 +247,8 @@ export default function App() {
   const lastVibrationAtRef = useRef(0);
   const motionSubscriptionRef = useRef<{ remove: () => void } | null>(null);
   const motionWebCleanupRef = useRef<(() => void) | null>(null);
+  const lastGravitySampleRef = useRef<{ x: number; y: number; z: number } | null>(null);
+  const motionArmedAtRef = useRef(0);
 
   const t = copy[language];
   const hfToken = process.env.EXPO_PUBLIC_HUGGINGFACE_TOKEN;
@@ -336,11 +338,32 @@ export default function App() {
   };
 
   const onMotionSample = (accSource: any, rotationSource: any): void => {
+    if (Date.now() < motionArmedAtRef.current) return;
+
     const acc = accSource || {};
-    const magnitude = Math.abs(acc.x || 0) + Math.abs(acc.y || 0) + Math.abs(acc.z || 0);
+    let movement = 0;
+    if (
+      typeof acc.x === "number" &&
+      typeof acc.y === "number" &&
+      typeof acc.z === "number"
+    ) {
+      // Preferred signal: acceleration without gravity.
+      movement = Math.abs(acc.x) + Math.abs(acc.y) + Math.abs(acc.z);
+    } else if (acc && typeof acc === "object") {
+      // Fallback signal: high-pass via delta on gravity-included acceleration.
+      const gx = Number(acc.x || 0);
+      const gy = Number(acc.y || 0);
+      const gz = Number(acc.z || 0);
+      const prev = lastGravitySampleRef.current;
+      if (prev) {
+        movement = Math.abs(gx - prev.x) + Math.abs(gy - prev.y) + Math.abs(gz - prev.z);
+      }
+      lastGravitySampleRef.current = { x: gx, y: gy, z: gz };
+    }
+
     const rot = rotationSource || {};
     const rotation = Math.abs(rot.alpha || 0) + Math.abs(rot.beta || 0) + Math.abs(rot.gamma || 0);
-    if (magnitude > 2.25 || rotation > 2.9) {
+    if (movement > 1.4 || rotation > 2.9) {
       const now = Date.now();
       if (now - lastVibrationAtRef.current > 600) {
         lastVibrationAtRef.current = now;
@@ -371,8 +394,10 @@ export default function App() {
         }
 
         motionWebCleanupRef.current?.();
+        lastGravitySampleRef.current = null;
+        motionArmedAtRef.current = Date.now() + 900;
         const handler = (event: any) => {
-          onMotionSample(event?.accelerationIncludingGravity || event?.acceleration, event?.rotationRate);
+          onMotionSample(event?.acceleration || event?.accelerationIncludingGravity, event?.rotationRate);
         };
         win.addEventListener("devicemotion", handler);
         motionWebCleanupRef.current = () => win.removeEventListener("devicemotion", handler);
@@ -400,8 +425,10 @@ export default function App() {
 
       DeviceMotion.setUpdateInterval?.(220);
       motionSubscriptionRef.current?.remove?.();
+      lastGravitySampleRef.current = null;
+      motionArmedAtRef.current = Date.now() + 900;
       motionSubscriptionRef.current = DeviceMotion.addListener((event: any) => {
-        onMotionSample(event?.accelerationIncludingGravity || event?.acceleration, event?.rotationRate);
+        onMotionSample(event?.acceleration || event?.accelerationIncludingGravity, event?.rotationRate);
       });
 
       setMotionSupported(true);
