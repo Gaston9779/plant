@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
+  Easing,
   Image,
   Linking,
   Platform,
@@ -27,6 +29,7 @@ import { theme } from "./src/theme";
 const BUILD_MARKER = "build-2026-02-22-common-name-map-cache-v2";
 const HABITAT_BASEMAP_URL =
   "https://basemaps.cartocdn.com/light_all/0/0/0.png";
+const INTRO_DURATION_MS = 1700;
 
 const copy: Record<
   LanguageCode,
@@ -216,6 +219,9 @@ export default function App() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historyFilter, setHistoryFilter] = useState("");
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [showIntro, setShowIntro] = useState(true);
+  const [introPercent, setIntroPercent] = useState(0);
+  const introProgress = useMemo(() => new Animated.Value(0), []);
 
   const t = copy[language];
   const hfToken = process.env.EXPO_PUBLIC_HUGGINGFACE_TOKEN;
@@ -238,6 +244,25 @@ export default function App() {
 
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    const listenerId = introProgress.addListener(({ value }) => {
+      setIntroPercent(Math.min(100, Math.round(value * 100)));
+    });
+
+    Animated.timing(introProgress, {
+      toValue: 1,
+      duration: INTRO_DURATION_MS,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false
+    }).start(() => {
+      setTimeout(() => setShowIntro(false), 180);
+    });
+
+    return () => {
+      introProgress.removeListener(listenerId);
+    };
+  }, [introProgress]);
 
   const filteredHistory = useMemo(() => {
     if (!historyFilter.trim()) return history;
@@ -342,11 +367,48 @@ export default function App() {
 
   const WebLottie = Platform.OS === "web" ? (require("lottie-react").default as any) : null;
   const sectionLinks = currentResult?.knowledge.sectionLinks;
+  const introTitleOpacity = introProgress.interpolate({
+    inputRange: [0, 0.2, 1],
+    outputRange: [0, 0.95, 1]
+  });
+  const introTitleTranslateY = introProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [16, 0]
+  });
+  const introProgressWidth = introProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0%", "100%"]
+  });
+  const introOrbScale = introProgress.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [0.8, 1.08, 1]
+  });
 
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.safeArea}>
         <StatusBar style="dark" />
+        {showIntro && (
+          <View style={styles.introOverlay}>
+            <View style={styles.introGlowBack} />
+            <Animated.View style={[styles.introOrb, { transform: [{ scale: introOrbScale }] }]} />
+            <Animated.Text
+              style={[
+                styles.introTitle,
+                {
+                  opacity: introTitleOpacity,
+                  transform: [{ translateY: introTitleTranslateY }]
+                }
+              ]}
+            >
+              Plant Discovery
+            </Animated.Text>
+            <Text style={styles.introPercent}>{`${introPercent}%`}</Text>
+            <View style={styles.introBarTrack}>
+              <Animated.View style={[styles.introBarFill, { width: introProgressWidth }]} />
+            </View>
+          </View>
+        )}
         {isLoading && (
           <View pointerEvents="none" style={styles.loaderOverlay}>
             <View style={styles.loaderBackdrop} />
@@ -580,6 +642,54 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: theme.colors.background
+  },
+  introOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 40,
+    backgroundColor: "#eaf7ea",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 14
+  },
+  introGlowBack: {
+    position: "absolute",
+    width: 320,
+    height: 320,
+    borderRadius: 160,
+    backgroundColor: "rgba(116, 193, 104, 0.15)"
+  },
+  introOrb: {
+    width: 92,
+    height: 92,
+    borderRadius: 46,
+    backgroundColor: "#7bc96f",
+    borderWidth: 7,
+    borderColor: "rgba(29, 84, 36, 0.18)"
+  },
+  introTitle: {
+    marginTop: 6,
+    fontSize: 34,
+    color: "#1d5424",
+    fontWeight: "700",
+    fontStyle: "italic",
+    letterSpacing: 0.6
+  },
+  introPercent: {
+    color: "#356a3f",
+    fontSize: 18,
+    fontWeight: "700"
+  },
+  introBarTrack: {
+    width: 220,
+    height: 8,
+    borderRadius: 99,
+    backgroundColor: "rgba(40, 112, 49, 0.15)",
+    overflow: "hidden"
+  },
+  introBarFill: {
+    height: "100%",
+    backgroundColor: "#3f984d",
+    borderRadius: 99
   },
   loaderOverlay: {
     ...StyleSheet.absoluteFillObject,
