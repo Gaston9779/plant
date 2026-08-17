@@ -11,19 +11,20 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@expo/vector-icons": "^15.1.1",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/netinfo": "11.4.1",
-    "react-native-safe-area-context": "^5.6.1",
     "expo": "^54.0.33",
     "expo-camera": "~17.0.10",
     "expo-file-system": "~18.1.11",
-    "expo-image-picker": "~17.0.10",
     "expo-image-manipulator": "~13.1.7",
+    "expo-image-picker": "~17.0.10",
     "expo-status-bar": "~3.0.9",
     "lottie-react": "^2.4.1",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-native": "0.81.5",
+    "react-native-safe-area-context": "^5.6.1",
     "react-native-web": "^0.21.0"
   },
   "devDependencies": {

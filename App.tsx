@@ -13,6 +13,7 @@ import {
   View
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import NetInfo from "@react-native-community/netinfo";
@@ -38,12 +39,14 @@ const copy: Record<
     capture: string;
     upload: string;
     loading: string;
+    analysisText: string;
     confidence: string;
     alternatives: string;
     share: string;
     history: string;
     findPlant: string;
     emptyHistory: string;
+    emptyHistorySubtitle: string;
     provider: string;
     disease: string;
     dataSources: string;
@@ -69,12 +72,14 @@ const copy: Record<
     capture: "Scatta",
     upload: "Carica",
     loading: "Analisi reale della foto in corso...",
+    analysisText: "Riconosciamo forme, venature e dettagli unici della tua pianta per offrirti l’identificazione più accurata.",
     confidence: "Affidabilità",
     alternatives: "Specie alternative",
     share: "Condividi scheda",
     history: "Cronologia ricerche",
     findPlant: "Cerca una pianta",
     emptyHistory: "Le analisi salvate appariranno qui.",
+    emptyHistorySubtitle: "Identifica la tua prima pianta per iniziare il tuo piccolo erbario digitale.",
     provider: "Provider CV",
     disease: "Possibile malattia",
     dataSources: "Fonti dati",
@@ -99,12 +104,14 @@ const copy: Record<
     capture: "Capture",
     upload: "Upload",
     loading: "Running real photo analysis...",
+    analysisText: "We’re recognising shapes, veins and the unique details of your plant to offer the most accurate identification.",
     confidence: "Confidence",
     alternatives: "Alternative species",
     share: "Share card",
     history: "Search History",
     findPlant: "Find a plant",
     emptyHistory: "Your saved analyses will appear here.",
+    emptyHistorySubtitle: "Identify your first plant to start building your small digital herbarium.",
     provider: "CV provider",
     disease: "Possible disease",
     dataSources: "Data sources",
@@ -129,12 +136,14 @@ const copy: Record<
     capture: "Camara",
     upload: "Subir",
     loading: "Analisis real de la foto en curso...",
+    analysisText: "Reconocemos formas, venas y detalles únicos de tu planta para ofrecerte la identificación más precisa.",
     confidence: "Confianza",
     alternatives: "Especies alternativas",
     share: "Compartir ficha",
     history: "Historial",
     findPlant: "Buscar planta",
     emptyHistory: "Tus analisis guardados apareceran aqui.",
+    emptyHistorySubtitle: "Identifica tu primera planta para empezar tu pequeño herbario digital.",
     provider: "Proveedor CV",
     disease: "Posible enfermedad",
     dataSources: "Fuentes",
@@ -193,11 +202,13 @@ const SectionCard = ({
   icon,
   title,
   body,
+  warning = false,
   onPress
 }: {
-  icon: string;
+  icon: keyof typeof MaterialCommunityIcons.glyphMap;
   title: string;
   body: string;
+  warning?: boolean;
   onPress?: (() => void) | null;
 }) => (
   <Pressable
@@ -205,7 +216,11 @@ const SectionCard = ({
     onPress={onPress ?? undefined}
     disabled={!onPress}
   >
-    <Text style={styles.sectionTitle}>{`${icon} ${title}`}</Text>
+    <View style={styles.sectionHeader}>
+      <MaterialCommunityIcons name={icon} size={21} color={warning ? theme.colors.warning : theme.colors.cta} />
+      <Text style={[styles.sectionTitle, warning && styles.warningTitle]}>{title}</Text>
+      {onPress && <MaterialCommunityIcons name="chevron-down" size={20} color={warning ? theme.colors.warning : theme.colors.cta} />}
+    </View>
     <Text style={styles.sectionBody}>{body}</Text>
   </Pressable>
 );
@@ -255,7 +270,11 @@ export default function App() {
   const filteredHistory = useMemo(() => {
     if (!historyFilter.trim()) return history;
     const query = historyFilter.trim().toLowerCase();
-    return history.filter((item) => item.query.toLowerCase().includes(query));
+    return history.filter((item) =>
+      [item.query, item.result.knowledge.scientificName, item.result.knowledge.commonName]
+        .filter(Boolean)
+        .some((value) => value.toLowerCase().includes(query))
+    );
   }, [history, historyFilter]);
 
   const identifyImage = async (uri: string): Promise<void> => {
@@ -279,13 +298,12 @@ export default function App() {
       await saveCachedResult(uri, language, result);
       setHistory(await appendHistory(result));
     } catch (unknownError) {
-      const message = unknownError instanceof Error ? unknownError.message : t.genericError;
       const technical =
         unknownError instanceof Error
           ? `${unknownError.name}: ${unknownError.message}`
           : String(unknownError);
       console.error("[plant-pipeline] failure", unknownError);
-      setError(message);
+      setError(t.genericError);
       setErrorTechnical(technical);
     } finally {
       setIsLoading(false);
@@ -411,96 +429,57 @@ export default function App() {
       <SafeAreaView style={styles.safeArea}>
         <StatusBar style="dark" />
         {isLoading && (
-          <View pointerEvents="none" style={styles.loaderOverlay}>
+          <View style={styles.loaderOverlay}>
             <View style={styles.loaderBackdrop} />
-            {WebLottie ? (
-              <WebLottie
-                animationData={require("./src/assets/plant.json")}
-                loop
-                autoplay
-                style={styles.loaderCentered}
-              />
-            ) : (
-              <View style={styles.loaderNativeFallback}>
-                <ActivityIndicator size="large" color={theme.colors.cta} />
+            <View style={styles.analysisCard} accessibilityViewIsModal>
+              <View style={styles.analysisArt}>
+                {WebLottie ? <WebLottie animationData={require("./src/assets/plant.json")} loop autoplay style={styles.loaderCentered} /> : <MaterialCommunityIcons name="leaf" size={86} color={theme.colors.sage} />}
               </View>
-            )}
+              <MaterialCommunityIcons name="sprout" size={25} color={theme.colors.cta} />
+              <Text style={styles.analysisTitle}>{t.loading.replace("reale ", "")}</Text>
+              <Text style={styles.analysisText}>{t.analysisText}</Text>
+              <View style={styles.analysisDots}><View style={styles.analysisDotActive} /><View style={styles.analysisDot} /><View style={styles.analysisDot} /></View>
+            </View>
           </View>
         )}
         <ScrollView
           style={styles.screen}
           contentContainerStyle={styles.content}
         >
+        <View style={styles.appHeader}>
+          <View style={styles.logoWrap}>
+            <MaterialCommunityIcons name="sprout" size={28} color={theme.colors.cta} />
+            <Text style={styles.logoText}>Plant{"\n"}Discovery</Text>
+          </View>
+          <View style={styles.languageRow} accessibilityLabel={t.language}>
+            {(["it", "en", "es"] as LanguageCode[]).map((code) => (
+              <Pressable key={code} hitSlop={6} style={[styles.languageButton, language === code && styles.languageButtonActive]} onPress={() => handleLanguageChange(code)}>
+                <Text style={[styles.languageButtonText, language === code && styles.languageButtonTextActive]}>{languageLabel[code]}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
         <View style={styles.hero}>
           <View style={styles.heroTopRow}>
             <View style={styles.heroBadge}>
-              <Text style={styles.heroBadgeText}>{isOnline ? t.online : t.offline}</Text>
-            </View>
-            <View style={styles.languageWrap}>
-              <Text style={styles.languageLabel}>{t.language}</Text>
-              <View style={styles.languageRow}>
-                {(["it", "en", "es"] as LanguageCode[]).map((code) => (
-                  <Pressable
-                    key={code}
-                    style={[styles.languageButton, language === code && styles.languageButtonActive]}
-                    onPress={() => handleLanguageChange(code)}
-                  >
-                    <Text
-                      style={[styles.languageButtonText, language === code && styles.languageButtonTextActive]}
-                    >
-                      {languageLabel[code]}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
+              <View style={styles.onlineDot} /><Text style={styles.heroBadgeText}>{isOnline ? t.online : t.offline}</Text>
             </View>
           </View>
-
-          <Text style={styles.title}>{t.appTitle}</Text>
+          <View style={styles.heroLeafGhost}><MaterialCommunityIcons name="leaf" size={182} color={theme.colors.sage} /></View>
+          <Text style={styles.title}>Plant{"\n"}Discovery</Text>
           <Text style={styles.subtitle}>{t.appSubtitle}</Text>
-
-          <View style={styles.actionsRow}>
-            <Pressable style={[styles.primaryAction, isLoading && styles.actionDisabled]} onPress={handleCapture} disabled={isLoading}>
-              <Text style={styles.primaryActionText}>{t.capture}</Text>
-            </Pressable>
-            <Pressable style={[styles.secondaryAction, isLoading && styles.actionDisabled]} onPress={handleUpload} disabled={isLoading}>
-              <Text style={styles.secondaryActionText}>{t.upload}</Text>
-            </Pressable>
-          </View>
+        </View>
+        <View style={styles.actionsStack}>
+          <Pressable style={[styles.primaryAction, isLoading && styles.actionDisabled]} onPress={handleCapture} disabled={isLoading}><MaterialCommunityIcons name="camera-outline" size={20} color={theme.colors.ctaText} /><Text style={styles.primaryActionText}>{t.capture}</Text></Pressable>
+          <Pressable style={[styles.secondaryAction, isLoading && styles.actionDisabled]} onPress={handleUpload} disabled={isLoading}><MaterialCommunityIcons name="upload-outline" size={20} color={theme.colors.cta} /><Text style={styles.secondaryActionText}>{t.upload}</Text></Pressable>
         </View>
 
         {error && <Text style={styles.errorText}>{error}</Text>}
-        {errorTechnical && <Text style={styles.errorDetailText}>{errorTechnical}</Text>}
-
-        <View style={styles.diagnosticsCard}>
-          <Pressable
-            style={styles.diagnosticsHeader}
-            onPress={() => setDiagnosticsOpen((current) => !current)}
-          >
-            <Text style={styles.diagnosticsTitle}>Diagnostica</Text>
-            <Text style={styles.diagnosticsChevron}>{diagnosticsOpen ? "▾" : "▸"}</Text>
-          </Pressable>
-          {diagnosticsOpen && (
-            <View style={styles.diagnosticsBody}>
-              <Text style={styles.diagnosticsLine}>{`Build: ${BUILD_MARKER}`}</Text>
-              <Text style={styles.diagnosticsLine}>{`Backend URL: ${backendUrl || "mancante"}`}</Text>
-              <Text style={styles.diagnosticsLine}>{`Rete: ${isOnline ? "online" : "offline"}`}</Text>
-              <Text style={styles.diagnosticsLine}>{`HF token: ${hfToken ? `presente (${hfToken.length} chars)` : "mancante"}`}</Text>
-              <Text style={styles.diagnosticsLine}>{`HF species model: ${hfSpeciesModel || "mancante"}`}</Text>
-              <Text style={styles.diagnosticsLine}>{`HF disease model: ${hfDiseaseModel || "mancante (opzionale)"}`}</Text>
-              <Text style={styles.diagnosticsLine}>{`HF history model: ${hfHistoryModel || "mancante (opzionale, ma consigliato)"}`}</Text>
-              <Text style={styles.diagnosticsLine}>{`HF narrative model: ${hfNarrativeModel || "mancante (opzionale)"}`}</Text>
-              <Text style={styles.diagnosticsLine}>{`PlantNet key: ${plantNetKey ? "presente" : "mancante (opzionale se usi HF bio)"}`}</Text>
-            </View>
-          )}
-        </View>
 
         {currentResult && (
           <View style={styles.resultWrap}>
             <View style={styles.summaryCard}>
-              {currentResult.knowledge.imageUrl && (
-                <Image source={{ uri: currentResult.knowledge.imageUrl }} style={styles.previewImage} />
-              )}
+              {(currentResult.imageUri || currentResult.knowledge.imageUrl) && <Image source={{ uri: currentResult.imageUri || currentResult.knowledge.imageUrl! }} style={styles.previewImage} />}
               <Text style={styles.plantHeading}>{currentResult.knowledge.scientificName}</Text>
               <Text style={styles.plantSubheading}>
                 {currentResult.knowledge.commonName || currentResult.knowledge.family}
@@ -515,34 +494,10 @@ export default function App() {
               </View>
 
               <View style={styles.confidencePill}>
-                <Text style={styles.confidenceText}>
-                  {t.confidence}: {getConfidenceLabel(currentResult.classification.confidence)}
-                </Text>
+                <View style={styles.confidenceTop}><MaterialCommunityIcons name="shield-check" size={20} color={theme.colors.cta} /><Text style={styles.confidenceText}>{t.confidence}</Text><Text style={styles.confidencePercent}>{getConfidenceLabel(currentResult.classification.confidence)}</Text></View>
+                <View style={styles.confidenceTrack}><View style={[styles.confidenceFill, { width: `${Math.round(currentResult.classification.confidence * 100)}%` }]} /></View>
               </View>
-
-              <Text style={styles.metaInfo}>
-                {t.provider}: {currentResult.classification.provider ?? "legacy"}
-              </Text>
-              {currentResult.classification.disease && (
-                <Text style={styles.metaInfo}>
-                  {t.disease}: {currentResult.classification.disease.label} (
-                  {getConfidenceLabel(currentResult.classification.disease.confidence)})
-                </Text>
-              )}
-
-              <Text style={styles.altTitle}>{t.alternatives}</Text>
-              {currentResult.classification.alternatives.map((item, index) => (
-                <Text key={`${item.species}-${index}`} style={styles.altSpecies}>{`• ${item.species} (${getConfidenceLabel(
-                  item.confidence
-                )})`}</Text>
-              ))}
-
-              <Text style={styles.altTitle}>{t.dataSources}</Text>
-              {(currentResult.knowledge.sourceLinks ?? []).map((link) => (
-                <Pressable key={link} style={styles.sourceLinkChip} onPress={() => void openSourceLink(link)}>
-                  <Text style={styles.sourceLink}>{link}</Text>
-                </Pressable>
-              ))}
+              {currentResult.classification.alternatives.length > 0 && <><Text style={styles.altTitle}>{t.alternatives}</Text><View style={styles.alternativesWrap}>{currentResult.classification.alternatives.map((item, index) => (<View key={`${item.species}-${index}`} style={styles.alternativePill}><Text numberOfLines={1} style={styles.altSpecies}>{item.species}</Text><Text style={styles.altPercent}>{getConfidenceLabel(item.confidence)}</Text></View>))}</View></>}
 
               <Pressable
                 style={styles.shareAction}
@@ -555,18 +510,18 @@ export default function App() {
             </View>
 
             <SectionCard
-              icon="🧬"
+              icon="shield-check-outline"
               title={t.botanicalProfile}
               body={botanicalProfileBody}
             />
             <SectionCard
-              icon="🌿"
+              icon="sprout"
               title={t.description}
               body={currentResult.narrative.description}
               onPress={sectionLinks?.description ? () => void openSourceLink(sectionLinks.description!) : null}
             />
             <SectionCard
-              icon="📜"
+              icon="book-open-variant-outline"
               title={t.historySection}
               body={currentResult.narrative.history}
               onPress={sectionLinks?.history ? () => void openSourceLink(sectionLinks.history!) : null}
@@ -578,7 +533,7 @@ export default function App() {
                   void openSourceLink(sectionLinks.habitat!);
                 }}
               >
-                <Text style={styles.sectionTitle}>{`🗺️ ${t.habitat}`}</Text>
+                <View style={styles.sectionHeader}><MaterialCommunityIcons name="map-marker-outline" size={21} color={theme.colors.cta} /><Text style={styles.sectionTitle}>{t.habitat}</Text><MaterialCommunityIcons name="chevron-down" size={20} color={theme.colors.cta} /></View>
                 <View style={styles.mapLayerWrap}>
                   <Image source={{ uri: HABITAT_BASEMAP_URL }} style={styles.mapPreviewImage} />
                   <Image
@@ -589,20 +544,22 @@ export default function App() {
               </Pressable>
             ) : (
               <SectionCard
-                icon="🗺️"
+                icon="map-marker-outline"
                 title={t.habitat}
                 body={currentResult.narrative.habitat}
                 onPress={sectionLinks?.habitat ? () => void openSourceLink(sectionLinks.habitat!) : null}
               />
             )}
             <SectionCard
-              icon="⚠️"
+              icon="alert-outline"
               title={t.toxicity}
               body={currentResult.narrative.toxicity}
+              warning
               onPress={sectionLinks?.toxicity ? () => void openSourceLink(sectionLinks.toxicity!) : null}
             />
+            <SectionCard icon="watering-can-outline" title={t.care} body={currentResult.narrative.care} />
             <SectionCard
-              icon="✨"
+              icon="lightbulb-on-outline"
               title={t.funFacts}
               body={
                 curiosityBySpecies[
@@ -617,17 +574,11 @@ export default function App() {
         )}
 
         <View style={styles.historySectionWrap}>
-          <Text style={styles.historyHeading}>{t.history}</Text>
-          <TextInput
-            style={styles.historySearch}
-            placeholder={t.findPlant}
-            placeholderTextColor={theme.colors.textMuted}
-            value={historyFilter}
-            onChangeText={setHistoryFilter}
-          />
+          <View style={styles.historyTitleRow}><MaterialCommunityIcons name="history" size={24} color={theme.colors.cta} /><Text style={styles.historyHeading}>{t.history}</Text></View>
+          <View style={styles.historySearchWrap}><TextInput style={styles.historySearch} placeholder={t.findPlant} placeholderTextColor={theme.colors.textFaint} value={historyFilter} onChangeText={setHistoryFilter} /><MaterialCommunityIcons name="magnify" size={21} color={theme.colors.cta} /></View>
 
           {filteredHistory.length === 0 ? (
-            <Text style={styles.emptyState}>{t.emptyHistory}</Text>
+            <View style={styles.emptyStateWrap}><MaterialCommunityIcons name="sprout-outline" size={42} color={theme.colors.sage} /><Text style={styles.emptyState}>{t.emptyHistory}{"\n"}{t.emptyHistorySubtitle}</Text></View>
           ) : (
             filteredHistory.map((item) => (
               <View key={item.id} style={styles.historyCard}>
@@ -637,11 +588,9 @@ export default function App() {
                     setCurrentResult(item.result);
                   }}
                 >
-                  <Text style={styles.historyPlant}>{item.result.knowledge.commonName}</Text>
-                  <Text style={styles.historyMeta}>{new Date(item.createdAt).toLocaleString()}</Text>
-                  <Text style={styles.historyMeta}>
-                    {t.confidence}: {getConfidenceLabel(item.result.classification.confidence)}
-                  </Text>
+                  {item.result.imageUri || item.result.knowledge.imageUrl ? <Image source={{ uri: item.result.imageUri || item.result.knowledge.imageUrl! }} style={styles.historyImage} /> : <View style={styles.historyImageFallback}><MaterialCommunityIcons name="leaf" size={25} color={theme.colors.sage} /></View>}
+                  <View style={styles.historyCopy}><Text style={styles.historyPlant}>{item.result.knowledge.scientificName || item.result.knowledge.commonName}</Text><Text style={styles.historyCommon}>{item.result.knowledge.commonName}</Text><Text style={styles.historyMeta}>{new Date(item.createdAt).toLocaleDateString()}</Text></View>
+                  <Text style={styles.historyConfidence}>{getConfidenceLabel(item.result.classification.confidence)}</Text><MaterialCommunityIcons name="chevron-right" size={20} color={theme.colors.cta} />
                 </Pressable>
                 <Pressable
                   style={styles.deleteHistoryButton}
@@ -661,7 +610,7 @@ export default function App() {
   );
 }
 
-const styles = StyleSheet.create({
+const baseStyles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: theme.colors.background
@@ -1071,4 +1020,81 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "700"
   }
+});
+
+const styles = StyleSheet.create({
+  ...baseStyles,
+  safeArea: { flex: 1, backgroundColor: theme.colors.background },
+  screen: { flex: 1 },
+  content: { width: "100%", maxWidth: 480, alignSelf: "center", paddingHorizontal: 22, paddingTop: 18, paddingBottom: 42, gap: 14 },
+  appHeader: { minHeight: 48, flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 },
+  logoWrap: { flexDirection: "row", alignItems: "center", gap: 6 },
+  logoText: { color: theme.colors.heading, fontFamily: theme.font.display, fontSize: 15, fontWeight: "700", lineHeight: 14 },
+  languageRow: { flexDirection: "row", alignItems: "center", gap: 5 },
+  languageButton: { minWidth: 30, minHeight: 30, borderRadius: theme.radius.pill, alignItems: "center", justifyContent: "center" },
+  languageButtonActive: { backgroundColor: theme.colors.cta },
+  languageButtonText: { fontSize: 11, fontWeight: "800", color: theme.colors.textMuted },
+  languageButtonTextActive: { color: theme.colors.ctaText },
+  hero: { minHeight: 368, overflow: "hidden", padding: 25, justifyContent: "flex-end", backgroundColor: theme.colors.cardWhite, borderRadius: theme.radius.xl, borderWidth: 1, borderColor: theme.colors.cardBorder, ...theme.shadow },
+  heroTopRow: { position: "absolute", top: 20, left: 22 },
+  heroBadge: { flexDirection: "row", alignItems: "center", gap: 7, paddingVertical: 5, paddingHorizontal: 0 },
+  onlineDot: { width: 9, height: 9, borderRadius: 9, backgroundColor: "#559361" },
+  heroBadgeText: { color: theme.colors.cta, fontWeight: "600", fontSize: 13 },
+  heroLeafGhost: { position: "absolute", right: -28, top: 22, opacity: 0.16, transform: [{ rotate: "-19deg" }] },
+  title: { color: theme.colors.heading, fontFamily: theme.font.display, fontSize: 41, letterSpacing: -1.5, lineHeight: 42, fontWeight: "700", marginBottom: 18 },
+  subtitle: { maxWidth: "66%", color: theme.colors.textPrimary, fontSize: 14, lineHeight: 21 },
+  actionsStack: { gap: 11, marginTop: 4 },
+  primaryAction: { height: 56, borderRadius: theme.radius.pill, backgroundColor: theme.colors.cta, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 10, ...theme.shadow },
+  primaryActionText: { color: theme.colors.ctaText, fontSize: 15, fontWeight: "800" },
+  secondaryAction: { height: 55, borderRadius: theme.radius.pill, backgroundColor: theme.colors.cardWhite, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 10, borderWidth: 1, borderColor: theme.colors.cardBorder, ...theme.shadow },
+  secondaryActionText: { color: theme.colors.heading, fontSize: 15, fontWeight: "800" },
+  actionDisabled: { opacity: 0.55 },
+  errorText: { backgroundColor: "#FFF4F0", borderRadius: theme.radius.md, padding: 14, color: theme.colors.warning, fontWeight: "600", lineHeight: 20 },
+  loaderOverlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", zIndex: 20, padding: 24 },
+  loaderBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(17, 38, 24, 0.70)" },
+  analysisCard: { width: "100%", maxWidth: 330, minHeight: 450, borderRadius: theme.radius.xl, backgroundColor: theme.colors.cardWhite, alignItems: "center", justifyContent: "center", padding: 29, gap: 14, ...theme.shadow },
+  analysisArt: { width: 170, height: 170, alignItems: "center", justifyContent: "center", borderRadius: 85, backgroundColor: "#F6F5EC" },
+  loaderCentered: { width: 164, height: 164 },
+  analysisTitle: { color: theme.colors.heading, fontFamily: theme.font.display, textAlign: "center", fontSize: 26, lineHeight: 30, fontWeight: "700" },
+  analysisText: { color: theme.colors.textPrimary, textAlign: "center", fontSize: 13, lineHeight: 20 },
+  analysisDots: { flexDirection: "row", gap: 7, marginTop: 4 },
+  analysisDotActive: { width: 7, height: 7, borderRadius: 7, backgroundColor: theme.colors.sage },
+  analysisDot: { width: 7, height: 7, borderRadius: 7, backgroundColor: "#D2DACB" },
+  resultWrap: { gap: 12, marginTop: 4 },
+  summaryCard: { padding: 0, gap: 10, backgroundColor: "transparent", borderWidth: 0, shadowOpacity: 0 },
+  previewImage: { width: "100%", height: undefined, aspectRatio: 1, borderRadius: theme.radius.lg, marginBottom: 10, backgroundColor: theme.colors.sage },
+  plantHeading: { color: theme.colors.heading, fontFamily: theme.font.display, fontSize: 30, lineHeight: 35, fontWeight: "700" },
+  plantSubheading: { color: theme.colors.cta, fontSize: 15, fontStyle: "normal", fontWeight: "600" },
+  quickFactsRow: { flexDirection: "row", flexWrap: "wrap", gap: 7, marginTop: 2 },
+  quickFactPill: { backgroundColor: theme.colors.backgroundAccent, borderWidth: 0, borderRadius: theme.radius.pill, paddingHorizontal: 11, paddingVertical: 7 },
+  quickFactText: { color: theme.colors.heading, fontSize: 11, fontWeight: "700" },
+  confidencePill: { alignSelf: "stretch", backgroundColor: theme.colors.cardWhite, padding: 14, borderRadius: theme.radius.md, borderWidth: 1, borderColor: theme.colors.cardBorder, marginTop: 5, gap: 9, ...theme.shadow },
+  confidenceTop: { flexDirection: "row", alignItems: "center", gap: 8 },
+  confidenceText: { color: theme.colors.textPrimary, flex: 1, fontSize: 13, fontWeight: "700" },
+  confidencePercent: { color: theme.colors.cta, fontSize: 18, fontWeight: "800" },
+  confidenceTrack: { height: 4, width: "100%", overflow: "hidden", borderRadius: 99, backgroundColor: theme.colors.backgroundAccent },
+  confidenceFill: { height: "100%", borderRadius: 99, backgroundColor: theme.colors.cta },
+  altTitle: { color: theme.colors.heading, marginTop: 8, fontSize: 13, fontWeight: "800" },
+  alternativesWrap: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
+  alternativePill: { maxWidth: "100%", flexDirection: "row", gap: 9, paddingVertical: 7, paddingHorizontal: 10, borderRadius: theme.radius.pill, backgroundColor: theme.colors.backgroundAccent },
+  altSpecies: { color: theme.colors.cta, fontSize: 11, fontWeight: "600" }, altPercent: { color: theme.colors.heading, fontSize: 11, fontWeight: "800" },
+  shareAction: { height: 53, marginTop: 8, backgroundColor: theme.colors.cta, borderRadius: theme.radius.pill, flexDirection: "row", alignItems: "center", justifyContent: "center", ...theme.shadow },
+  shareActionText: { color: theme.colors.ctaText, fontWeight: "800", fontSize: 14 },
+  sectionCard: { backgroundColor: theme.colors.cardWhite, borderRadius: theme.radius.md, borderWidth: 1, borderColor: theme.colors.cardBorder, padding: 16, gap: 10, ...theme.shadow },
+  sectionCardLink: { borderColor: theme.colors.cardBorder }, sectionCardPressed: { opacity: 0.9 },
+  sectionHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
+  sectionTitle: { flex: 1, color: theme.colors.heading, fontSize: 15, fontWeight: "800" }, warningTitle: { color: theme.colors.warning },
+  sectionBody: { color: theme.colors.textPrimary, fontSize: 13, lineHeight: 20 },
+  mapLayerWrap: { height: 125, borderRadius: theme.radius.sm, overflow: "hidden", backgroundColor: theme.colors.backgroundAccent },
+  mapPreviewImage: { width: "100%", height: 125, resizeMode: "cover", opacity: 0.45 }, mapOverlayImage: { position: "absolute", width: "100%", height: 125, resizeMode: "cover" },
+  historySectionWrap: { marginTop: 14, gap: 10 }, historyTitleRow: { flexDirection: "row", alignItems: "center", gap: 9 },
+  historyHeading: { color: theme.colors.heading, fontFamily: theme.font.display, fontWeight: "700", fontSize: 23 },
+  historySearchWrap: { height: 48, flexDirection: "row", alignItems: "center", paddingHorizontal: 13, borderRadius: theme.radius.pill, backgroundColor: "#E7EBDD" },
+  historySearch: { flex: 1, color: theme.colors.heading, fontSize: 13, paddingVertical: 0 },
+  emptyStateWrap: { alignItems: "center", gap: 9, paddingVertical: 25 }, emptyState: { color: theme.colors.textMuted, textAlign: "center", fontSize: 13, lineHeight: 20 },
+  historyCard: { backgroundColor: theme.colors.cardWhite, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.cardBorder, padding: 6, flexDirection: "row", ...theme.shadow },
+  historyMainArea: { flex: 1, minHeight: 61, flexDirection: "row", alignItems: "center", gap: 10 },
+  historyImage: { width: 51, height: 51, borderRadius: 11, backgroundColor: theme.colors.backgroundAccent }, historyImageFallback: { width: 51, height: 51, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.backgroundAccent },
+  historyCopy: { flex: 1, gap: 2 }, historyPlant: { color: theme.colors.heading, fontWeight: "800", fontSize: 13 }, historyCommon: { color: theme.colors.cta, fontSize: 11 }, historyMeta: { color: theme.colors.textFaint, fontSize: 10 }, historyConfidence: { color: theme.colors.heading, fontSize: 12, fontWeight: "800" },
+  deleteHistoryButton: { width: 34, minWidth: 34, alignSelf: "stretch", borderWidth: 0, backgroundColor: "transparent", paddingHorizontal: 0 }, deleteHistoryText: { color: theme.colors.warning, fontSize: 17 }
 });
