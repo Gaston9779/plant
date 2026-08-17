@@ -22,10 +22,10 @@ export const theme = {
     pill: 999
   },
   shadow: {
-    color: "#173E27",
-    opacity: 0.075,
-    radius: 22,
-    offset: { width: 0, height: 9 },
+    shadowColor: "#173E27",
+    shadowOpacity: 0.075,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 9 },
     elevation: 3
   },
   font: {
